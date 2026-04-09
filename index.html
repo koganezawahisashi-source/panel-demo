@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>操作パネル デモ</title>
+<style>
+  :root {
+    --bg:        #080C14;
+    --surface:   #0F1623;
+    --card:      #172032;
+    --card2:     #1E2A3D;
+    --border:    #243044;
+    --accent:    #4F8EF7;
+    --accent-lo: rgba(79,142,247,.12);
+    --teal:      #22D3EE;
+    --green:     #34D399;
+    --yellow:    #FBBF24;
+    --red:       #F87171;
+    --txt:       #E8EEF8;
+    --txt2:      #8B9BBF;
+    --txt3:      #4A5A7A;
+    --radius:    12px;
+    --sidebar:   220px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--txt); font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; font-size: 14px; }
+
+  /* ─── SCREEN SYSTEM ─── */
+  .screen { position: fixed; inset: 0; display: none; }
+  .screen.active { display: flex; }
+
+  /* ══════════════════════════
+     LOCK SCREEN
+  ══════════════════════════ */
+  #screen-lock {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at 50% 40%, #0E1E3A 0%, var(--bg) 70%);
+    gap: 0;
+  }
+  .lock-logo {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .18em;
+    color: var(--txt3);
+    text-transform: uppercase;
+    margin-bottom: 56px;
+  }
+  .rfid-wrap {
+    position: relative;
+    width: 140px;
+    height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 32px;
+  }
+  .rfid-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    animation: ringPulse 2.4s ease-out infinite;
+    opacity: 0;
+  }
+  .rfid-ring:nth-child(1) { width: 60px;  height: 60px;  animation-delay: 0s; }
+  .rfid-ring:nth-child(2) { width: 100px; height: 100px; animation-delay: .6s; }
+  .rfid-ring:nth-child(3) { width: 140px; height: 140px; animation-delay: 1.2s; }
+  @keyframes ringPulse {
+    0%   { opacity: .7; transform: scale(.8); }
+    100% { opacity: 0;  transform: scale(1); }
+  }
+  .rfid-icon {
+    width: 52px; height: 52px;
+    background: var(--accent-lo);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid rgba(79,142,247,.3);
+    position: relative; z-index: 1;
+  }
+  .rfid-icon svg { width: 26px; height: 26px; fill: var(--accent); }
+  .lock-label {
+    font-size: 15px; font-weight: 400; color: var(--txt2);
+    letter-spacing: .05em; margin-bottom: 48px;
+  }
+  .demo-cards {
+    display: flex; gap: 16px; margin-bottom: 64px;
+  }
+  .demo-card-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 16px 28px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); cursor: pointer;
+    transition: all .2s; color: var(--txt);
+  }
+  .demo-card-btn:hover { background: var(--card2); border-color: var(--accent); transform: translateY(-2px); }
+  .demo-card-btn .card-icon { font-size: 22px; }
+  .demo-card-btn .card-role { font-size: 12px; color: var(--txt2); }
+  .demo-card-btn .card-name { font-size: 14px; font-weight: 600; }
+  .lock-clock {
+    position: fixed; bottom: 32px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .lock-time { font-size: 36px; font-weight: 200; letter-spacing: .08em; color: var(--txt); }
+  .lock-date { font-size: 13px; color: var(--txt3); letter-spacing: .06em; }
+
+  /* AUTH OVERLAY */
+  #auth-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(8,12,20,.85);
+    display: none; align-items: center; justify-content: center;
+    backdrop-filter: blur(6px);
+  }
+  #auth-overlay.show { display: flex; }
+  .auth-box {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 20px; padding: 40px 56px;
+    text-align: center; display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  .auth-spinner {
+    width: 48px; height: 48px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .auth-text { font-size: 14px; color: var(--txt2); }
+
+  /* ══════════════════════════
+     MAIN LAYOUT
+  ══════════════════════════ */
+  #screen-main { flex-direction: column; }
+
+  /* HEADER */
+  header {
+    height: 56px; flex-shrink: 0;
+    display: flex; align-items: center; padding: 0 20px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    gap: 16px;
+  }
+  .hd-logo { font-size: 13px; font-weight: 700; letter-spacing: .14em; color: var(--accent); text-transform: uppercase; }
+  .hd-sep  { width: 1px; height: 20px; background: var(--border); }
+  .hd-machine { font-size: 14px; font-weight: 600; color: var(--txt); }
+  .hd-status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; letter-spacing: .06em;
+    padding: 4px 10px; border-radius: 20px;
+    background: rgba(52,211,153,.1); color: var(--green); border: 1px solid rgba(52,211,153,.25);
+  }
+  .hd-status.stopped { background: rgba(248,113,113,.1); color: var(--red); border-color: rgba(248,113,113,.25); }
+  .hd-status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .hd-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  .hd-alarm-btn {
+    position: relative; background: none; border: none; cursor: pointer;
+    color: var(--txt2); padding: 6px; border-radius: 8px;
+    transition: color .2s, background .2s;
+  }
+  .hd-alarm-btn:hover { color: var(--yellow); background: rgba(251,191,36,.1); }
+  .hd-alarm-btn svg { width: 20px; height: 20px; display: block; }
+  .alarm-badge {
+    position: absolute; top: 2px; right: 2px;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--red);
+    border: 2px solid var(--surface);
+  }
+  .hd-user { display: flex; align-items: center; gap: 8px; }
+  .hd-avatar {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--accent-lo); border: 1px solid rgba(79,142,247,.3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: var(--accent);
+  }
+  .hd-user-info { line-height: 1.3; }
+  .hd-user-name { font-size: 13px; font-weight: 600; color: var(--txt); }
+  .hd-user-role { font-size: 11px; color: var(--txt2); }
+  .hd-clock { font-size: 13px; font-weight: 500; color: var(--txt2); letter-spacing: .06em; min-width: 60px; text-align: right; }
+  .hd-logout {
+    background: none; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--txt2); font-size: 12px; padding: 5px 12px; cursor: pointer;
+    transition: all .2s;
+  }
+  .hd-logout:hover { border-color: var(--red); color: var(--red); background: rgba(248,113,113,.08); }
+
+  /* BODY */
+  .main-body { flex: 1; display: flex; overflow: hidden; }
+
+  /* SIDEBAR */
+  nav {
+    width: var(--sidebar); flex-shrink: 0;
+    background: var(--surface); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 12px 0;
+    overflow-y: auto;
+  }
+  .nav-section { padding: 0 12px; margin-top: 8px; margin-bottom: 4px; font-size: 10px; font-weight: 600; letter-spacing: .12em; color: var(--txt3); text-transform: uppercase; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; margin: 0 8px; border-radius: 8px;
+    cursor: pointer; color: var(--txt2); font-size: 13px; font-weight: 500;
+    transition: all .15s; border: none; background: none; width: calc(100% - 16px);
+    text-align: left;
+  }
+  .nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .nav-item:hover { background: var(--card); color: var(--txt); }
+  .nav-item.active { background: var(--accent-lo); color: var(--accent); border: 1px solid rgba(79,142,247,.2); }
+  .nav-item .nav-badge {
+    margin-left: auto; background: var(--red); color: #fff;
+    font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px;
+  }
+  .nav-admin { font-size: 10px; font-weight: 600; color: var(--yellow); margin-left: auto; letter-spacing: .04em; }
+
+  /* CONTENT */
+  main { flex: 1; overflow-y: auto; padding: 24px; background: var(--bg); }
+
+  /* PANEL SHOW/HIDE */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ─── COMMON COMPONENTS ─── */
+  .page-title { font-size: 20px; font-weight: 700; color: var(--txt); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+  .page-title svg { width: 22px; height: 22px; color: var(--accent); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .card-sm { padding: 16px; }
+  .card-title { font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--txt3); text-transform: uppercase; margin-bottom: 8px; }
+  .card-value { font-size: 28px; font-weight: 300; color: var(--txt); letter-spacing: -.01em; }
+  .card-value small { font-size: 14px; color: var(--txt2); margin-left: 4px; }
+  .card-sub { font-size: 12px; color: var(--txt2); margin-top: 4px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600;
+  }
+  .chip-green  { background: rgba(52,211,153,.1);  color: var(--green);  border: 1px solid rgba(52,211,153,.25); }
+  .chip-yellow { background: rgba(251,191,36,.1);  color: var(--yellow); border: 1px solid rgba(251,191,36,.25); }
+  .chip-red    { background: rgba(248,113,113,.1); color: var(--red);    border: 1px solid rgba(248,113,113,.25); }
+  .chip-blue   { background: var(--accent-lo);     color: var(--accent); border: 1px solid rgba(79,142,247,.25); }
+  .chip-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  /* ─── HOME PANEL ─── */
+  .stat-bar { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 20px; }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px 20px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .stat-card.highlight { border-color: rgba(79,142,247,.4); background: linear-gradient(135deg, var(--card), #1A2840); }
+  .stat-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--txt3); text-transform: uppercase; }
+  .stat-val { font-size: 26px; font-weight: 300; color: var(--txt); }
+  .stat-val small { font-size: 13px; color: var(--txt2); }
+  .stat-trend { font-size: 11px; color: var(--txt2); }
+  .gauge-wrap { margin-bottom: 20px; }
+  .gauge-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .gauge-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .gauge-label { font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--txt3); text-transform: uppercase; margin-bottom: 12px; }
+  .gauge-bar-wrap { background: var(--bg); border-radius: 4px; height: 6px; margin-bottom: 8px; overflow: hidden; }
+  .gauge-bar { height: 100%; border-radius: 4px; transition: width .5s; }
+  .gauge-nums { display: flex; justify-content: space-between; font-size: 12px; color: var(--txt2); }
+  .gauge-current { font-size: 20px; font-weight: 300; color: var(--txt); }
+
+  /* ─── OPERATION PANEL ─── */
+  .op-main { display: grid; grid-template-columns: 1fr 360px; gap: 20px; }
+  .op-control { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; display: flex; flex-direction: column; gap: 24px; }
+  .op-btn-row { display: flex; gap: 16px; }
+  .btn-start {
+    flex: 1; padding: 20px; border-radius: 12px; border: none; cursor: pointer;
+    font-size: 16px; font-weight: 700; letter-spacing: .06em;
+    background: linear-gradient(135deg, #059669, var(--green));
+    color: #fff; box-shadow: 0 4px 20px rgba(52,211,153,.25);
+    transition: all .2s;
+  }
+  .btn-start:hover { transform: translateY(-2px); box-shadow: 0 6px 28px rgba(52,211,153,.35); }
+  .btn-start:disabled { opacity: .3; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn-stop {
+    flex: 1; padding: 20px; border-radius: 12px; border: none; cursor: pointer;
+    font-size: 16px; font-weight: 700; letter-spacing: .06em;
+    background: linear-gradient(135deg, #DC2626, var(--red));
+    color: #fff; box-shadow: 0 4px 20px rgba(248,113,113,.25);
+    transition: all .2s;
+  }
+  .btn-stop:hover { transform: translateY(-2px); box-shadow: 0 6px 28px rgba(248,113,113,.35); }
+  .btn-stop:disabled { opacity: .3; cursor: not-allowed; transform: none; box-shadow: none; }
+  .speed-section { display: flex; flex-direction: column; gap: 12px; }
+  .speed-label { font-size: 12px; font-weight: 600; letter-spacing: .08em; color: var(--txt3); text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+  .speed-val { font-size: 22px; font-weight: 300; color: var(--txt); }
+  input[type=range] {
+    -webkit-appearance: none; width: 100%; height: 4px;
+    background: var(--border); border-radius: 2px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; box-shadow: 0 0 0 4px var(--accent-lo);
+  }
+  .op-side { display: flex; flex-direction: column; gap: 16px; }
+  .op-status-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .op-status-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .op-status-row:last-child { border-bottom: none; }
+  .op-status-key { font-size: 12px; color: var(--txt2); }
+  .op-status-val { font-size: 13px; font-weight: 600; color: var(--txt); }
+
+  /* ─── ALARM PANEL ─── */
+  .alarm-filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .filter-btn {
+    padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+    border: 1px solid var(--border); background: none; color: var(--txt2); cursor: pointer; transition: all .15s;
+  }
+  .filter-btn.active { background: var(--accent-lo); color: var(--accent); border-color: rgba(79,142,247,.3); }
+  .alarm-list { display: flex; flex-direction: column; gap: 8px; }
+  .alarm-item {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px;
+    border-left: 3px solid transparent;
+  }
+  .alarm-item.lvl-warn   { border-left-color: var(--yellow); }
+  .alarm-item.lvl-error  { border-left-color: var(--red); }
+  .alarm-item.lvl-info   { border-left-color: var(--accent); }
+  .alarm-icon { font-size: 18px; margin-top: 1px; }
+  .alarm-body { flex: 1; }
+  .alarm-title { font-size: 13px; font-weight: 600; color: var(--txt); margin-bottom: 2px; }
+  .alarm-detail { font-size: 12px; color: var(--txt2); margin-bottom: 6px; }
+  .alarm-meta { display: flex; gap: 8px; align-items: center; }
+  .alarm-time { font-size: 11px; color: var(--txt3); }
+  .alarm-action {
+    padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 600;
+    border: 1px solid var(--border); background: none; color: var(--txt2); cursor: pointer; transition: all .15s;
+    white-space: nowrap;
+  }
+  .alarm-action:hover { background: var(--card2); color: var(--txt); }
+  .alarm-action.admin-only { border-color: rgba(79,142,247,.3); color: var(--accent); }
+  .alarm-action.admin-only:hover { background: var(--accent-lo); }
+
+  /* ─── SETTINGS PANEL ─── */
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .settings-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .settings-card-title { font-size: 13px; font-weight: 700; color: var(--txt); margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-label { font-size: 13px; color: var(--txt); }
+  .setting-sub { font-size: 11px; color: var(--txt2); margin-top: 1px; }
+  .setting-val { font-size: 13px; font-weight: 600; color: var(--txt); }
+  input[type=number], select.input-sel {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--txt); padding: 5px 10px; font-size: 13px; width: 100px;
+  }
+  input[type=number]:focus, select.input-sel:focus { outline: none; border-color: var(--accent); }
+  .toggle-wrap { display: flex; align-items: center; gap: 8px; }
+  .toggle {
+    width: 38px; height: 22px; border-radius: 11px; background: var(--border);
+    border: none; cursor: pointer; position: relative; transition: background .2s;
+    flex-shrink: 0;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle::after {
+    content: ''; position: absolute; top: 3px; left: 3px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s;
+  }
+  .toggle.on::after { transform: translateX(16px); }
+  .btn-save {
+    margin-top: 16px; width: 100%; padding: 10px; border-radius: 8px; border: none;
+    background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s;
+  }
+  .btn-save:hover { background: #6AA0F9; }
+
+  /* ─── USERS PANEL ─── */
+  .users-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .btn-add {
+    display: flex; align-items: center; gap: 6px; padding: 8px 16px;
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s;
+  }
+  .btn-add:hover { background: #6AA0F9; }
+  .user-table { width: 100%; border-collapse: collapse; }
+  .user-table th { font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--txt3); text-transform: uppercase; text-align: left; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+  .user-table td { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--txt); }
+  .user-table tr:last-child td { border-bottom: none; }
+  .user-table tr:hover td { background: var(--card2); }
+  .user-table tbody { background: var(--card); border-radius: var(--radius); }
+  .user-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-lo); border: 1px solid rgba(79,142,247,.3); display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--accent); margin-right: 8px; }
+  .tbl-action { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 11px; color: var(--txt2); cursor: pointer; margin-right: 4px; transition: all .15s; }
+  .tbl-action:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-lo); }
+  .tbl-action.del:hover { border-color: var(--red); color: var(--red); background: rgba(248,113,113,.08); }
+
+  /* ─── LOG PANEL ─── */
+  .log-table { width: 100%; border-collapse: collapse; }
+  .log-table th { font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--txt3); text-transform: uppercase; text-align: left; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+  .log-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--txt2); font-family: monospace; }
+  .log-table td.log-msg { color: var(--txt); font-family: inherit; font-size: 13px; }
+  .log-table tbody { background: var(--card); }
+  .log-table tr:last-child td { border-bottom: none; }
+
+  /* ─── TOAST ─── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 200;
+    background: var(--card2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 20px; font-size: 13px; color: var(--txt);
+    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    transform: translateY(20px); opacity: 0; transition: all .25s;
+    pointer-events: none;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ══ LOCK SCREEN ══ -->
+<div id="screen-lock" class="screen active">
+  <div class="lock-logo">NEXUS CONTROL SYSTEMS</div>
+  <div class="rfid-wrap">
+    <div class="rfid-ring"></div>
+    <div class="rfid-ring"></div>
+    <div class="rfid-ring"></div>
+    <div class="rfid-icon">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/></svg>
+    </div>
+  </div>
+  <div class="lock-label">カードをかざしてください</div>
+  <div class="demo-cards">
+    <button class="demo-card-btn" onclick="authenticate('operator')">
+      <span class="card-icon">💳</span>
+      <span class="card-name">田中 一郎</span>
+      <span class="card-role">オペレーター</span>
+    </button>
+    <button class="demo-card-btn" onclick="authenticate('admin')">
+      <span class="card-icon">🔑</span>
+      <span class="card-name">山田 太郎</span>
+      <span class="card-role">管理者</span>
+    </button>
+  </div>
+  <div class="lock-clock">
+    <div class="lock-time" id="lockTime">--:--:--</div>
+    <div class="lock-date" id="lockDate">----/--/--</div>
+  </div>
+</div>
+
+<!-- AUTH OVERLAY -->
+<div id="auth-overlay">
+  <div class="auth-box">
+    <div class="auth-spinner"></div>
+    <div class="auth-text">認証中...</div>
+  </div>
+</div>
+
+<!-- ══ MAIN SCREEN ══ -->
+<div id="screen-main" class="screen">
+
+  <!-- HEADER -->
+  <header>
+    <div class="hd-logo">NCS</div>
+    <div class="hd-sep"></div>
+    <div class="hd-machine">CNC-7800</div>
+    <div class="hd-status" id="hd-machine-status">
+      <div class="hd-status-dot"></div>
+      <span id="hd-status-text">稼働中</span>
+    </div>
+    <div class="hd-right">
+      <button class="hd-alarm-btn" onclick="showPanel('alarm')" title="アラーム">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+        <span class="alarm-badge" id="alarm-badge"></span>
+      </button>
+      <div class="hd-sep"></div>
+      <div class="hd-user">
+        <div class="hd-avatar" id="hd-avatar">?</div>
+        <div class="hd-user-info">
+          <div class="hd-user-name" id="hd-user-name">-</div>
+          <div class="hd-user-role" id="hd-user-role">-</div>
+        </div>
+      </div>
+      <div class="hd-clock" id="headerClock">--:--:--</div>
+      <button class="hd-logout" onclick="logout()">ログアウト</button>
+    </div>
+  </header>
+
+  <!-- BODY -->
+  <div class="main-body">
+
+    <!-- SIDEBAR NAV -->
+    <nav id="sidebar">
+      <div class="nav-section">メイン</div>
+      <button class="nav-item active" onclick="showPanel('home')" id="nav-home">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        ホーム
+      </button>
+      <button class="nav-item" onclick="showPanel('operation')" id="nav-operation">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+        運転操作
+      </button>
+      <button class="nav-item" onclick="showPanel('alarm')" id="nav-alarm">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+        アラーム
+        <span class="nav-badge" id="nav-alarm-badge">2</span>
+      </button>
+      <button class="nav-item" onclick="showPanel('log')" id="nav-log">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+        操作ログ
+      </button>
+
+      <!-- Admin only -->
+      <div class="nav-section admin-section" style="margin-top:16px;">管理</div>
+      <button class="nav-item admin-nav" onclick="showPanel('settings')" id="nav-settings">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 9.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        設定
+        <span class="nav-admin">ADMIN</span>
+      </button>
+      <button class="nav-item admin-nav" onclick="showPanel('users')" id="nav-users">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+        ユーザー管理
+        <span class="nav-admin">ADMIN</span>
+      </button>
+    </nav>
+
+    <!-- CONTENT -->
+    <main>
+
+      <!-- HOME -->
+      <div class="panel active" id="panel-home">
+        <div class="page-title">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+          ダッシュボード
+        </div>
+        <div class="stat-bar">
+          <div class="stat-card highlight">
+            <div class="stat-label">機械状態</div>
+            <div style="margin-top:4px;"><span class="chip chip-green" id="home-status-chip"><span class="chip-dot"></span>稼働中</span></div>
+            <div class="stat-trend" style="margin-top:8px;">本日稼働 08:32:15</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">回転数</div>
+            <div class="stat-val" id="home-rpm">1,200 <small>RPM</small></div>
+            <div class="stat-trend">設定値: 1,200 RPM</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">加工数</div>
+            <div class="stat-val">1,247 <small>個</small></div>
+            <div class="stat-trend">本日: 247 個</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">温度</div>
+            <div class="stat-val">72 <small>°C</small></div>
+            <div class="stat-trend"><span style="color:var(--yellow)">▲</span> 上昇傾向</div>
+          </div>
+        </div>
+        <div class="gauge-row" style="margin-bottom:20px;">
+          <div class="gauge-card">
+            <div class="gauge-label">スピンドル負荷</div>
+            <div class="gauge-bar-wrap"><div class="gauge-bar" id="gauge-spindle" style="width:68%;background:linear-gradient(90deg,var(--accent),var(--teal))"></div></div>
+            <div class="gauge-nums"><span>0%</span><div class="gauge-current">68%</div><span>100%</span></div>
+          </div>
+          <div class="gauge-card">
+            <div class="gauge-label">冷却水温度</div>
+            <div class="gauge-bar-wrap"><div class="gauge-bar" id="gauge-coolant" style="width:48%;background:linear-gradient(90deg,var(--teal),var(--green))"></div></div>
+            <div class="gauge-nums"><span>0°C</span><div class="gauge-current">48°C</div><span>100°C</span></div>
+          </div>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden;">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--txt);display:flex;justify-content:space-between;align-items:center;">
+            最近のアラーム
+            <button class="filter-btn" onclick="showPanel('alarm')" style="font-size:11px;padding:4px 10px;">すべて表示</button>
+          </div>
+          <div style="padding:12px 16px;display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;">
+              <span style="font-size:16px;">⚠️</span>
+              <div style="flex:1;">
+                <div style="font-size:13px;font-weight:600;color:var(--txt);">冷却水温度上昇</div>
+                <div style="font-size:11px;color:var(--txt2);">2026-03-31 08:15:22</div>
+              </div>
+              <span class="chip chip-yellow">警告</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:16px;">ℹ️</span>
+              <div style="flex:1;">
+                <div style="font-size:13px;font-weight:600;color:var(--txt);">定期メンテナンス予定</div>
+                <div style="font-size:11px;color:var(--txt2);">2026-03-31 10:00:00</div>
+              </div>
+              <span class="chip chip-blue">情報</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OPERATION -->
+      <div class="panel" id="panel-operation">
+        <div class="page-title">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          運転操作
+        </div>
+        <div class="op-main">
+          <div class="op-control">
+            <div>
+              <div style="font-size:11px;font-weight:600;letter-spacing:.1em;color:var(--txt3);text-transform:uppercase;margin-bottom:12px;">運転制御</div>
+              <div class="op-btn-row">
+                <button class="btn-start" id="btn-start" onclick="toggleMachine(true)">▶ 運転開始</button>
+                <button class="btn-stop"  id="btn-stop"  onclick="toggleMachine(false)">■ 運転停止</button>
+              </div>
+            </div>
+            <div class="speed-section">
+              <div class="speed-label">
+                回転数設定
+                <span class="speed-val" id="speed-display">1,200 RPM</span>
+              </div>
+              <input type="range" id="speed-slider" min="0" max="3000" step="100" value="1200" oninput="updateSpeed(this.value)">
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--txt3);">
+                <span>0 RPM</span><span>1,500 RPM</span><span>3,000 RPM</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:11px;font-weight:600;letter-spacing:.1em;color:var(--txt3);text-transform:uppercase;margin-bottom:12px;">送り速度</div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="filter-btn active" onclick="setFeed(this,'25%')">25%</button>
+                <button class="filter-btn" onclick="setFeed(this,'50%')">50%</button>
+                <button class="filter-btn" onclick="setFeed(this,'75%')">75%</button>
+                <button class="filter-btn" onclick="setFeed(this,'100%')">100%</button>
+              </div>
+            </div>
+          </div>
+          <div class="op-side">
+            <div class="op-status-card">
+              <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:12px;">現在の状態</div>
+              <div class="op-status-row"><span class="op-status-key">運転状態</span><span class="op-status-val" id="op-status-label">稼働中</span></div>
+              <div class="op-status-row"><span class="op-status-key">実回転数</span><span class="op-status-val" id="op-actual-rpm">1,200 RPM</span></div>
+              <div class="op-status-row"><span class="op-status-key">スピンドル負荷</span><span class="op-status-val">68%</span></div>
+              <div class="op-status-row"><span class="op-status-key">送り速度</span><span class="op-status-val" id="op-feed">25%</span></div>
+              <div class="op-status-row"><span class="op-status-key">本日加工数</span><span class="op-status-val">247 個</span></div>
+              <div class="op-status-row"><span class="op-status-key">積算時間</span><span class="op-status-val">08:32:15</span></div>
+            </div>
+            <div class="op-status-card">
+              <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:12px;">温度モニタ</div>
+              <div class="op-status-row"><span class="op-status-key">スピンドル温度</span><span class="op-status-val" style="color:var(--yellow)">72°C</span></div>
+              <div class="op-status-row"><span class="op-status-key">冷却水温度</span><span class="op-status-val" style="color:var(--yellow)">48°C</span></div>
+              <div class="op-status-row"><span class="op-status-key">環境温度</span><span class="op-status-val">24°C</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ALARM -->
+      <div class="panel" id="panel-alarm">
+        <div class="page-title">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+          アラーム
+        </div>
+        <div class="alarm-filters">
+          <button class="filter-btn active">すべて (2)</button>
+          <button class="filter-btn">エラー (0)</button>
+          <button class="filter-btn">警告 (1)</button>
+          <button class="filter-btn">情報 (1)</button>
+        </div>
+        <div class="alarm-list">
+          <div class="alarm-item lvl-warn">
+            <div class="alarm-icon">⚠️</div>
+            <div class="alarm-body">
+              <div class="alarm-title">冷却水温度上昇</div>
+              <div class="alarm-detail">冷却水温度が設定上限値(45°C)を超えました。現在 48°C。冷却システムの確認が必要です。</div>
+              <div class="alarm-meta">
+                <span class="chip chip-yellow"><span class="chip-dot"></span>警告</span>
+                <span class="alarm-time">2026-03-31 08:15:22</span>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <button class="alarm-action">詳細</button>
+              <button class="alarm-action admin-only" id="alarm-reset-btn" onclick="resetAlarm(this)">リセット</button>
+            </div>
+          </div>
+          <div class="alarm-item lvl-info">
+            <div class="alarm-icon">ℹ️</div>
+            <div class="alarm-body">
+              <div class="alarm-title">定期メンテナンス予定</div>
+              <div class="alarm-detail">スピンドルオイル交換の定期メンテナンス予定日 (2026-04-01) が近づいています。</div>
+              <div class="alarm-meta">
+                <span class="chip chip-blue"><span class="chip-dot"></span>情報</span>
+                <span class="alarm-time">2026-03-31 10:00:00</span>
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <button class="alarm-action">詳細</button>
+              <button class="alarm-action admin-only" onclick="showToast('メンテナンス予定を更新しました')">更新</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SETTINGS (admin) -->
+      <div class="panel" id="panel-settings">
+        <div class="page-title">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 9.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          設定
+          <span class="chip chip-yellow" style="font-size:11px;">管理者専用</span>
+        </div>
+        <div class="settings-grid">
+          <div class="settings-card">
+            <div class="settings-card-title">運転パラメータ</div>
+            <div class="setting-row">
+              <div><div class="setting-label">最大回転数</div><div class="setting-sub">スピンドル上限値</div></div>
+              <input type="number" value="3000" min="0" max="5000">
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">加速時間</div><div class="setting-sub">0 → 最大回転数 (秒)</div></div>
+              <input type="number" value="5" min="1" max="30">
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">減速時間</div><div class="setting-sub">最大 → 0 (秒)</div></div>
+              <input type="number" value="3" min="1" max="30">
+            </div>
+            <button class="btn-save" onclick="showToast('パラメータを保存しました ✓')">保存</button>
+          </div>
+          <div class="settings-card">
+            <div class="settings-card-title">アラーム閾値</div>
+            <div class="setting-row">
+              <div><div class="setting-label">冷却水温度上限</div></div>
+              <input type="number" value="45" min="0" max="100">
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">スピンドル温度上限</div></div>
+              <input type="number" value="80" min="0" max="150">
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">負荷率警告閾値</div></div>
+              <input type="number" value="85" min="0" max="100">
+            </div>
+            <button class="btn-save" onclick="showToast('閾値を保存しました ✓')">保存</button>
+          </div>
+          <div class="settings-card">
+            <div class="settings-card-title">セキュリティ設定</div>
+            <div class="setting-row">
+              <div><div class="setting-label">自動ロック</div><div class="setting-sub">非操作後にロック</div></div>
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">自動ロック時間</div></div>
+              <select class="input-sel">
+                <option>3分</option><option selected>5分</option><option>10分</option><option>30分</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">操作ログ記録</div></div>
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">リモートアクセス</div></div>
+              <button class="toggle" onclick="this.classList.toggle('on')"></button>
+            </div>
+            <button class="btn-save" onclick="showToast('セキュリティ設定を保存しました ✓')">保存</button>
+          </div>
+          <div class="settings-card">
+            <div class="settings-card-title">表示設定</div>
+            <div class="setting-row">
+              <div><div class="setting-label">表示言語</div></div>
+              <select class="input-sel"><option selected>日本語</option><option>English</option><option>中文</option></select>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">画面輝度</div></div>
+              <input type="number" value="80" min="10" max="100">
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">画面節電</div></div>
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+            <div class="setting-row">
+              <div><div class="setting-label">ビープ音</div></div>
+              <button class="toggle on" onclick="this.classList.toggle('on')"></button>
+            </div>
+            <button class="btn-save" onclick="showToast('表示設定を保存しました ✓')">保存</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- USERS (admin) -->
+      <div class="panel" id="panel-users">
+        <div class="page-title">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+          ユーザー管理
+          <span class="chip chip-yellow" style="font-size:11px;">管理者専用</span>
+        </div>
+        <div class="users-header">
+          <div style="font-size:13px;color:var(--txt2);">登録ユーザー: 4 名</div>
+          <button class="btn-add" onclick="showToast('ユーザー追加ダイアログ (デモ)')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            ユーザー追加
+          </button>
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+          <table class="user-table">
+            <thead>
+              <tr><th>名前</th><th>カードID</th><th>権限</th><th>最終ログイン</th><th>ステータス</th><th>操作</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="user-avatar">YT</span>山田 太郎</td>
+                <td style="font-family:monospace;color:var(--txt2);">RFID-00A1</td>
+                <td><span class="chip chip-yellow">管理者</span></td>
+                <td style="color:var(--txt2);">2026-03-31 09:00</td>
+                <td><span class="chip chip-green"><span class="chip-dot"></span>有効</span></td>
+                <td><button class="tbl-action" onclick="showToast('編集ダイアログ (デモ)')">編集</button><button class="tbl-action del" onclick="showToast('削除は確認ダイアログで行います')">削除</button></td>
+              </tr>
+              <tr>
+                <td><span class="user-avatar">TI</span>田中 一郎</td>
+                <td style="font-family:monospace;color:var(--txt2);">RFID-00B2</td>
+                <td><span class="chip chip-blue">オペレーター</span></td>
+                <td style="color:var(--txt2);">2026-03-31 09:30</td>
+                <td><span class="chip chip-green"><span class="chip-dot"></span>有効</span></td>
+                <td><button class="tbl-action" onclick="showToast('編集ダイアログ (デモ)')">編集</button><button class="tbl-action del" onclick="showToast('削除は確認ダイアログで行います')">削除</button></td>
+              </tr>
+              <tr>
+                <td><span class="user-avatar">SH</span>鈴木 花子</td>
+                <td style="font-family:monospace;color:var(--txt2);">RFID-00C3</td>
+                <td><span class="chip chip-blue">オペレーター</span></td>
+                <td style="color:var(--txt2);">2026-03-30 17:45</td>
+                <td><span class="chip chip-green"><span class="chip-dot"></span>有効</span></td>
+                <td><button class="tbl-action" onclick="showToast('編集ダイアログ (デモ)')">編集</button><button class="tbl-action del" onclick="showToast('削除は確認ダイアログで行います')">削除</button></td>
+              </tr>
+              <tr>
+                <td><span class="user-avatar">WK</span>渡辺 健二</td>
+                <td style="font-family:monospace;color:var(--txt2);">RFID-00D4</td>
+                <td><span class="chip chip-blue">オペレーター</span></td>
+                <td style="color:var(--txt2);">2026-03-28 11:00</td>
+                <td><span class="chip chip-red">停止中</span></td>
+                <td><button class="tbl-action" onclick="showToast('編集ダイアログ (デモ)')">編集</button><button class="tbl-action" onclick="showToast('アカウントを有効化しました')">有効化</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- LOG -->
+      <div class="panel" id="panel-log">
+        <div class="page-title">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+          操作ログ
+        </div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+          <table class="log-table">
+            <thead>
+              <tr><th>日時</th><th>ユーザー</th><th>権限</th><th>操作内容</th><th>結果</th></tr>
+            </thead>
+            <tbody id="log-body">
+              <tr><td>2026-03-31 09:00:12</td><td>山田 太郎</td><td><span class="chip chip-yellow" style="font-size:10px;">管理者</span></td><td class="log-msg">RFID認証ログイン (RFID-00A1)</td><td><span class="chip chip-green" style="font-size:10px;">成功</span></td></tr>
+              <tr><td>2026-03-31 09:02:05</td><td>山田 太郎</td><td><span class="chip chip-yellow" style="font-size:10px;">管理者</span></td><td class="log-msg">運転開始 (1200RPM)</td><td><span class="chip chip-green" style="font-size:10px;">実行</span></td></tr>
+              <tr><td>2026-03-31 08:15:22</td><td>システム</td><td>—</td><td class="log-msg">アラーム発生: 冷却水温度上昇 (48°C)</td><td><span class="chip chip-yellow" style="font-size:10px;">警告</span></td></tr>
+              <tr><td>2026-03-31 09:30:44</td><td>田中 一郎</td><td><span class="chip chip-blue" style="font-size:10px;">オペレーター</span></td><td class="log-msg">RFID認証ログイン (RFID-00B2)</td><td><span class="chip chip-green" style="font-size:10px;">成功</span></td></tr>
+              <tr><td>2026-03-31 09:35:10</td><td>田中 一郎</td><td><span class="chip chip-blue" style="font-size:10px;">オペレーター</span></td><td class="log-msg">回転数変更 1200 → 1500 RPM</td><td><span class="chip chip-green" style="font-size:10px;">実行</span></td></tr>
+              <tr><td>2026-03-30 17:44:02</td><td>鈴木 花子</td><td><span class="chip chip-blue" style="font-size:10px;">オペレーター</span></td><td class="log-msg">運転停止</td><td><span class="chip chip-green" style="font-size:10px;">実行</span></td></tr>
+              <tr><td>2026-03-30 17:45:55</td><td>鈴木 花子</td><td><span class="chip chip-blue" style="font-size:10px;">オペレーター</span></td><td class="log-msg">ログアウト</td><td><span class="chip chip-green" style="font-size:10px;">実行</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+  const state = {
+    user: null,
+    running: true,
+    speed: 1200,
+    panel: 'home',
+  };
+
+  // ── CLOCK ──
+  function updateClock() {
+    const now = new Date();
+    const hms = now.toLocaleTimeString('ja-JP', { hour12: false });
+    const ymd = now.toLocaleDateString('ja-JP', { year:'numeric', month:'2-digit', day:'2-digit' }).replace(/\//g, '-');
+    document.getElementById('lockTime').textContent    = hms;
+    document.getElementById('lockDate').textContent    = ymd;
+    document.getElementById('headerClock').textContent = hms;
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // ── AUTH ──
+  function authenticate(role) {
+    const overlay = document.getElementById('auth-overlay');
+    overlay.classList.add('show');
+    setTimeout(() => {
+      overlay.classList.remove('show');
+      const users = {
+        operator: { name: '田中 一郎', role: 'オペレーター', initial: 'TI', isAdmin: false },
+        admin:    { name: '山田 太郎', role: '管理者',       initial: 'YT', isAdmin: true  },
+      };
+      state.user = users[role];
+      document.getElementById('hd-avatar').textContent    = state.user.initial;
+      document.getElementById('hd-user-name').textContent = state.user.name;
+      document.getElementById('hd-user-role').textContent = state.user.role;
+      applyPermissions();
+      document.getElementById('screen-lock').classList.remove('active');
+      document.getElementById('screen-main').classList.add('active');
+      showPanel('home');
+      addLog(`RFID認証ログイン (${role === 'admin' ? 'RFID-00A1' : 'RFID-00B2'})`, state.user.name, state.user.role);
+    }, 1400);
+  }
+
+  function applyPermissions() {
+    const isAdmin = state.user.isAdmin;
+    document.querySelectorAll('.admin-nav, .nav-section.admin-section').forEach(el => {
+      el.style.display = isAdmin ? '' : 'none';
+    });
+    const resetBtn = document.getElementById('alarm-reset-btn');
+    if (resetBtn) resetBtn.style.display = isAdmin ? '' : 'none';
+  }
+
+  function logout() {
+    addLog('ログアウト', state.user.name, state.user.role);
+    state.user = null;
+    document.getElementById('screen-main').classList.remove('active');
+    document.getElementById('screen-lock').classList.add('active');
+  }
+
+  // ── PANEL NAV ──
+  function showPanel(name) {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('panel-' + name)?.classList.add('active');
+    document.getElementById('nav-' + name)?.classList.add('active');
+    state.panel = name;
+  }
+
+  // ── MACHINE ──
+  function toggleMachine(start) {
+    state.running = start;
+    document.getElementById('btn-start').disabled = start;
+    document.getElementById('btn-stop').disabled  = !start;
+    const statusText = start ? '稼働中' : '停止中';
+    document.getElementById('op-status-label').textContent = statusText;
+    document.getElementById('op-actual-rpm').textContent   = start ? state.speed.toLocaleString() + ' RPM' : '0 RPM';
+    document.getElementById('hd-status-text').textContent  = statusText;
+    const hds = document.getElementById('hd-machine-status');
+    hds.className = 'hd-status' + (start ? '' : ' stopped');
+    const chip = document.getElementById('home-status-chip');
+    chip.className = 'chip ' + (start ? 'chip-green' : 'chip-red');
+    chip.innerHTML = '<span class="chip-dot"></span>' + statusText;
+    addLog(start ? `運転開始 (${state.speed}RPM)` : '運転停止', state.user.name, state.user.role);
+    showToast(start ? '運転を開始しました' : '運転を停止しました');
+  }
+
+  function updateSpeed(val) {
+    state.speed = parseInt(val);
+    const disp = state.speed.toLocaleString() + ' RPM';
+    document.getElementById('speed-display').textContent  = disp;
+    document.getElementById('op-actual-rpm').textContent  = state.running ? disp : '0 RPM';
+    document.getElementById('home-rpm').innerHTML = state.speed.toLocaleString() + ' <small>RPM</small>';
+  }
+
+  function setFeed(btn, val) {
+    document.querySelectorAll('.op-control .filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('op-feed').textContent = val;
+  }
+
+  function resetAlarm(btn) {
+    const item = btn.closest('.alarm-item');
+    item.style.transition = 'opacity .4s';
+    item.style.opacity = '0';
+    setTimeout(() => { item.style.display = 'none'; }, 400);
+    document.getElementById('alarm-badge').style.display = 'none';
+    document.getElementById('nav-alarm-badge').style.display = 'none';
+    showToast('アラームをリセットしました ✓');
+    addLog('アラームリセット: 冷却水温度上昇', state.user.name, state.user.role);
+  }
+
+  // ── LOG ──
+  function addLog(msg, name, role) {
+    const now = new Date().toLocaleString('ja-JP', { hour12: false });
+    const isAdmin = role === '管理者';
+    const chipClass = isAdmin ? 'chip-yellow' : 'chip-blue';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${now}</td>
+      <td>${name}</td>
+      <td><span class="chip ${chipClass}" style="font-size:10px;">${role}</span></td>
+      <td class="log-msg">${msg}</td>
+      <td><span class="chip chip-green" style="font-size:10px;">実行</span></td>`;
+    const tbody = document.getElementById('log-body');
+    tbody.insertBefore(tr, tbody.firstChild);
+  }
+
+  // ── TOAST ──
+  let toastTimer;
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // ── INIT BTN STATE ──
+  document.getElementById('btn-start').disabled = true;
+</script>
+</body>
+</html>
