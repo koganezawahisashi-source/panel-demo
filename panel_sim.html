@@ -260,6 +260,15 @@ function renderHeader() {
   text(RIGHT_X - 8, 10, state.userName,    C.TXT,  13, 'right', 'top');
   text(RIGHT_X - 8, 36, state.userRoleStr, C.TXT2, 12, 'right', 'top');
   text(RIGHT_X - 8, 60, ts,               C.TXT2, 13, 'right', 'top');
+
+  /* アクティブアラームバッジ */
+  const activeCount = state.alarms.filter(a => a.active).length;
+  if (activeCount > 0) {
+    const bx = CONT_X + 310 + 120;
+    const by = (HDR_H - 22) / 2;
+    rect(bx, by, 54, 22, C.RED);
+    text(bx + 27, by + 11, '\u26a0 ' + activeCount, C.WHITE, 11, 'center', 'middle', true);
+  }
 }
 
 /* ═══════════════════════════════════════════════
@@ -472,7 +481,7 @@ function renderOperation() {
   }
   drawRightBtn(1, 'RPM+', C.CARD);
   drawRightBtn(2, 'RPM-', C.CARD);
-  drawRightBtn(3, 'FEED', C.CARD);
+  drawRightBtn(3, 'PRT+', C.ACCENT);
 }
 
 /* ═══════════════════════════════════════════════
@@ -871,7 +880,11 @@ function handleTag(tag, now) {
         const minR = state.settingsParams.minRpm;
         if (state.setRpm > minR) { state.setRpm = Math.max(minR, state.setRpm - 100); state.actualRpm = state.setRpm; }
       }
-      if (tag === 14) state.feedIdx = (state.feedIdx + 1) % getFeedVals().length;
+      if (tag === 14) {
+        state.partsToday++;
+        state.partsTotal++;
+        showToast('Parts count: ' + state.partsToday, now);
+      }
       break;
     case PANEL.ALARM: {
       if (tag === 2) state.alarmCursor = (state.alarmCursor - 1 + state.alarms.length) % state.alarms.length;
