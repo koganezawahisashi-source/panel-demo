@@ -25,7 +25,6 @@
     display: block;
     border: 2px solid #243044;
     cursor: pointer;
-    /* スケール（小さい画面でも表示できるよう必要なら調整） */
     max-width: 100%;
   }
   #touch-hint {
@@ -50,22 +49,25 @@ const W = 800, H = 480;
 const BTN_W = 90, BTN_H = 90, BTN_GAP = 40;
 const BTN_Y = [0, 130, 260, 390];
 const CONT_X = BTN_W, CONT_W = W - 2 * BTN_W, RIGHT_X = W - BTN_W;
-const HDR_H = 44;
+const HDR_H  = 80;   /* 44 → 56 → 80 */
+
+/* フォントスケール（50cm視認距離対応） */
+const FONT_SCALE = 1.7;
 
 const C = {
   BG:     '#080C14', SURF:   '#0F1623', CARD:   '#172032',
   CARD2:  '#1E2A3D', BORDER: '#243044', ACCENT: '#4F8EF7',
   TEAL:   '#22D3EE', GREEN:  '#34D399', YELLOW: '#FBBF24',
-  RED:    '#F87171', TXT:    '#E8EEF8', TXT2:   '#8B9BBF',
-  TXT3:   '#4A5A7A', WHITE:  '#FFFFFF',
+  ORANGE: '#F97316', RED:    '#F87171', TXT:    '#E8EEF8',
+  TXT2:   '#8B9BBF', TXT3:   '#4A5A7A', WHITE:  '#FFFFFF',
 };
 
 /* ═══════════════════════════════════════════════
    状態
 ═══════════════════════════════════════════════ */
-const SCREEN = { LOCK: 0, AUTH: 1, MAIN: 2 };
-const PANEL  = { HOME: 0, OPERATION: 1, ALARM: 2, LOG: 3, SETTINGS: 4, USERS: 5 };
-const ROLE   = { NONE: 0, OPERATOR: 1, ADMIN: 2 };
+const SCREEN  = { LOCK: 0, AUTH: 1, MAIN: 2 };
+const PANEL   = { HOME: 0, OPERATION: 1, ALARM: 2, LOG: 3, SETTINGS: 4, USERS: 5 };
+const ROLE    = { NONE: 0, OPERATOR: 1, ADMIN: 2 };
 const MACHINE = { STOPPED: 0, RUNNING: 1 };
 
 const state = {
@@ -78,24 +80,63 @@ const state = {
   menuOpen: false, menuCursor: 0,
   authStart: 0, authPending: ROLE.NONE, authDuration: 1500,
   alarms: [
-    { level: 'warn',  title: 'Coolant Temp High',
-      detail: 'Coolant temp exceeded 45°C limit. Now 48°C.',
+    { level: 'warn', title: 'Coolant Temp High',
+      detail: 'Coolant temp exceeded 45C limit. Now 48C.',
       time: '2026-03-31 08:15', active: true, adminOnly: true },
-    { level: 'info',  title: 'Maintenance Due',
+    { level: 'info', title: 'Maintenance Due',
       detail: 'Spindle oil change due 2026-04-01.',
       time: '2026-03-31 10:00', active: true, adminOnly: false },
   ],
   alarmFilter: 'all', alarmCursor: 0,
-  lockCursor: 0,  /* 0=OPR 1=ADM */
+  lockCursor: 0,
+  logScroll: 0,
+  settingsCursor: 0,
+  settingsEditing: false,
+  settingsChanged: false,
+  settingsParams: { maxRpm: 3000, minRpm: 0, feedPattern: 0, toolNo: 1 },
+  userCursor: 0,
   rtcH: 10, rtcM: 30, rtcS: 0, rtcLast: 0,
   toastMsg: '', toastTick: 0, toastVisible: false,
-  animTick: 0,
 };
 
-const feedVals = [25, 50, 75, 100];
+/* フィードパターン（Settings で切替） */
+const FEED_PATTERNS = [
+  [25, 50, 75, 100],   /* Pattern 1 */
+  [50, 100],           /* Pattern 2 */
+];
+function getFeedVals() { return FEED_PATTERNS[state.settingsParams.feedPattern]; }
+
+/* ユーザーデータ（状態変更可能なグローバル配列） */
+const USER_DATA = [
+  { name: 'Y.Yamada', role: 'Admin',    last: '2026-04-10 10:00', active: true  },
+  { name: 'I.Tanaka', role: 'Operator', last: '2026-04-10 10:30', active: true  },
+  { name: 'K.Suzuki', role: 'Operator', last: '2026-04-09 14:20', active: true  },
+  { name: 'H.Sato',   role: 'Viewer',   last: '2026-03-28 09:00', active: false },
+];
+
+/* RPM値に応じた色（共通ルール: 赤=危険/注意のみ） */
+function rpmColor(rpm) {
+  return rpm >= 3000 ? C.ORANGE : rpm >= 1500 ? C.YELLOW : C.GREEN;
+}
+
+const LOG_DATA = [
+  { time: '10:30:00', user: 'I.Tanaka', event: 'Login (Operator)' },
+  { time: '10:28:15', user: 'Y.Yamada', event: 'Alarm reset: Coolant' },
+  { time: '10:25:00', user: 'Y.Yamada', event: 'RPM changed: 1000\u21921200' },
+  { time: '10:15:30', user: 'Y.Yamada', event: 'Feed rate changed: 50%\u219275%' },
+  { time: '10:00:00', user: 'Y.Yamada', event: 'Login (Admin)' },
+  { time: '09:55:10', user: 'I.Tanaka', event: 'Settings saved' },
+  { time: '09:45:30', user: 'I.Tanaka', event: 'Machine stopped' },
+  { time: '09:30:00', user: 'I.Tanaka', event: 'Alarm ack: Coolant High' },
+  { time: '09:10:00', user: 'I.Tanaka', event: 'RPM changed: 1200\u21921000' },
+  { time: '08:55:00', user: 'K.Suzuki', event: 'Login (Operator)' },
+  { time: '08:32:00', user: 'I.Tanaka', event: 'Machine started' },
+  { time: '08:30:00', user: 'I.Tanaka', event: 'Login (Operator)' },
+  { time: '08:00:00', user: 'Y.Yamada', event: 'System startup' },
+];
 
 /* ═══════════════════════════════════════════════
-   Canvas セットアップ
+   Canvas
 ═══════════════════════════════════════════════ */
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
@@ -107,29 +148,24 @@ function rect(x, y, w, h, color) {
   ctx.fillStyle = color;
   ctx.fillRect(x, y, w, h);
 }
-
 function strokeRect(x, y, w, h, color, lw = 1) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth = lw;
+  ctx.strokeStyle = color; ctx.lineWidth = lw;
   ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
 }
-
 function hline(x, y, w, color, lw = 1) {
   ctx.strokeStyle = color; ctx.lineWidth = lw;
-  ctx.beginPath(); ctx.moveTo(x, y + .5); ctx.lineTo(x + w, y + .5);
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y + .5); ctx.lineTo(x + w, y + .5); ctx.stroke();
 }
-
 function vline(x, y, h, color, lw = 1) {
   ctx.strokeStyle = color; ctx.lineWidth = lw;
-  ctx.beginPath(); ctx.moveTo(x + .5, y); ctx.lineTo(x + .5, y + h);
-  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + .5, y); ctx.lineTo(x + .5, y + h); ctx.stroke();
 }
 
+/* フォントスケールを適用 */
 function text(x, y, str, color, size = 13, align = 'left', baseline = 'middle', bold = false) {
-  ctx.fillStyle = color;
-  ctx.font = `${bold ? '700' : '400'} ${size}px "Segoe UI", Arial, sans-serif`;
-  ctx.textAlign = align;
+  ctx.fillStyle    = color;
+  ctx.font         = `${bold ? '700' : '400'} ${Math.round(size * FONT_SCALE)}px "Segoe UI", Arial, sans-serif`;
+  ctx.textAlign    = align;
   ctx.textBaseline = baseline;
   ctx.fillText(str, x, y);
 }
@@ -138,24 +174,20 @@ function bar(x, y, w, h, pct, fg) {
   rect(x, y, w, h, C.BG);
   if (pct > 0) rect(x, y, Math.round(w * pct / 100), h, fg);
 }
-
 function card(x, y, w, h) {
   rect(x, y, w, h, C.CARD);
   strokeRect(x, y, w, h, C.BORDER);
 }
-
 function chip(x, y, label, color) {
-  const tw = label.length * 7 + 16;
-  ctx.fillStyle = color + '22';
-  ctx.fillRect(x, y, tw, 20);
-  ctx.strokeStyle = color + '44';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x + .5, y + .5, tw - 1, 19);
-  text(x + tw / 2, y + 10, label, color, 11, 'center');
+  const tw = label.length * 9 + 18;
+  ctx.fillStyle = color + '22'; ctx.fillRect(x, y, tw, 26);
+  ctx.strokeStyle = color + '44'; ctx.lineWidth = 1;
+  ctx.strokeRect(x + .5, y + .5, tw - 1, 25);
+  text(x + tw / 2, y + 13, label, color, 11, 'center');
 }
 
 /* ═══════════════════════════════════════════════
-   左固定ボタン描画
+   左固定ボタン
 ═══════════════════════════════════════════════ */
 function drawLeftButtons() {
   for (let i = 0; i < 4; i++) {
@@ -164,59 +196,49 @@ function drawLeftButtons() {
     hline(0, y + BTN_H - 1, BTN_W, C.BORDER);
     vline(BTN_W - 1, y, BTN_H, C.BORDER);
   }
-  /* アイコン */
   drawIconMenu(0, BTN_Y[0]);
-  drawIconUp   (0, BTN_Y[1]);
-  drawIconOk   (0, BTN_Y[2]);
-  drawIconDown (0, BTN_Y[3]);
+  drawIconUp  (0, BTN_Y[1]);
+  drawIconOk  (0, BTN_Y[2]);
+  drawIconDown(0, BTN_Y[3]);
 }
-
 function drawIconMenu(bx, by) {
   ctx.strokeStyle = C.TXT2; ctx.lineWidth = 3;
   [30, 45, 60].forEach(dy => {
-    ctx.beginPath();
-    ctx.moveTo(bx + 22, by + dy); ctx.lineTo(bx + 68, by + dy);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx + 22, by + dy); ctx.lineTo(bx + 68, by + dy); ctx.stroke();
   });
 }
 function drawIconUp(bx, by) {
   ctx.strokeStyle = C.TXT2; ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(bx + 45, by + 28);
-  ctx.lineTo(bx + 22, by + 62);
-  ctx.moveTo(bx + 45, by + 28);
-  ctx.lineTo(bx + 68, by + 62);
+  ctx.moveTo(bx + 45, by + 28); ctx.lineTo(bx + 22, by + 62);
+  ctx.moveTo(bx + 45, by + 28); ctx.lineTo(bx + 68, by + 62);
   ctx.stroke();
 }
 function drawIconOk(bx, by) {
   ctx.strokeStyle = C.GREEN; ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(bx + 22, by + 48);
-  ctx.lineTo(bx + 38, by + 62);
-  ctx.lineTo(bx + 68, by + 28);
+  ctx.moveTo(bx + 22, by + 48); ctx.lineTo(bx + 38, by + 62); ctx.lineTo(bx + 68, by + 28);
   ctx.stroke();
 }
 function drawIconDown(bx, by) {
   ctx.strokeStyle = C.TXT2; ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(bx + 22, by + 28);
-  ctx.lineTo(bx + 45, by + 62);
-  ctx.moveTo(bx + 68, by + 28);
-  ctx.lineTo(bx + 45, by + 62);
+  ctx.moveTo(bx + 22, by + 28); ctx.lineTo(bx + 45, by + 62);
+  ctx.moveTo(bx + 68, by + 28); ctx.lineTo(bx + 45, by + 62);
   ctx.stroke();
 }
 
 /* ═══════════════════════════════════════════════
    右可変ボタン
 ═══════════════════════════════════════════════ */
-function drawRightBtn(idx, label, bgColor, enabled = true) {
-  const y = BTN_Y[idx];
+function drawRightBtn(idx, label, bgColor, enabled = true, fontSize = 14) {
+  const y  = BTN_Y[idx];
   const bg = enabled ? bgColor : C.SURF;
   const fc = enabled ? C.TXT   : C.TXT3;
   rect(RIGHT_X, y, BTN_W, BTN_H, bg);
   vline(RIGHT_X, y, BTN_H, C.BORDER);
   hline(RIGHT_X, y + BTN_H - 1, BTN_W, C.BORDER);
-  if (label) text(RIGHT_X + BTN_W / 2, y + BTN_H / 2, label, fc, 13, 'center');
+  if (label) text(RIGHT_X + BTN_W / 2, y + BTN_H / 2, label, fc, fontSize, 'center');
 }
 
 /* ═══════════════════════════════════════════════
@@ -226,19 +248,18 @@ function renderHeader() {
   rect(CONT_X, 0, CONT_W, HDR_H, C.SURF);
   hline(CONT_X, HDR_H - 1, CONT_W, C.BORDER);
 
-  text(CONT_X + 10, HDR_H / 2, 'NCS', C.ACCENT, 14, 'left', 'middle', true);
-  vline(CONT_X + 48, 10, HDR_H - 20, C.BORDER);
-  text(CONT_X + 58, HDR_H / 2, 'CNC-7800', C.TXT, 13, 'left', 'middle', true);
+  text(CONT_X + 12, HDR_H / 2, 'NCS', C.ACCENT, 14, 'left', 'middle', true);
+  vline(CONT_X + 76, 10, HDR_H - 20, C.BORDER);
+  text(CONT_X + 86, HDR_H / 2, 'CNC-7800', C.TXT, 13, 'left', 'middle', true);
 
   const stLabel = state.machine === MACHINE.RUNNING ? 'RUNNING' : 'STOPPED';
   const stCol   = state.machine === MACHINE.RUNNING ? C.GREEN   : C.RED;
-  chip(CONT_X + 158, 12, stLabel, stCol);
+  chip(CONT_X + 310, (HDR_H - 26) / 2, stLabel, stCol);
 
-  /* 時計・ユーザー */
   const ts = `${p2(state.rtcH)}:${p2(state.rtcM)}:${p2(state.rtcS)}`;
-  text(RIGHT_X - 8, HDR_H / 2, ts, C.TXT2, 12, 'right');
-  text(RIGHT_X - 90, HDR_H / 2 - 7, state.userName,    C.TXT,  12, 'left');
-  text(RIGHT_X - 90, HDR_H / 2 + 7, state.userRoleStr, C.TXT2, 11, 'left');
+  text(RIGHT_X - 8, 10, state.userName,    C.TXT,  13, 'right', 'top');
+  text(RIGHT_X - 8, 36, state.userRoleStr, C.TXT2, 12, 'right', 'top');
+  text(RIGHT_X - 8, 60, ts,               C.TXT2, 13, 'right', 'top');
 }
 
 /* ═══════════════════════════════════════════════
@@ -249,126 +270,113 @@ function renderLock(now) {
 
   const cx = CONT_X + CONT_W / 2, cy = H / 2 - 40;
 
-  /* RFID リングアニメ */
+  /* RFIDリングアニメ */
   const t = now % 2400;
   [[0, 30], [600, 50], [1200, 70]].forEach(([delay, r]) => {
     let phase = (t + 2400 - delay) % 2400;
     let alpha = phase < 1200 ? (1 - phase / 1200) * 0.7 : 0;
     if (alpha < 0.01) return;
-    ctx.save();
-    ctx.globalAlpha = alpha;
+    ctx.save(); ctx.globalAlpha = alpha;
     ctx.strokeStyle = C.ACCENT; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
   });
 
-  /* 中央アイコン */
-  rect(cx - 26, cy - 26, 52, 52, C.CARD);
-  strokeRect(cx - 26, cy - 26, 52, 52, C.BORDER);
+  rect(cx - 28, cy - 28, 56, 56, C.CARD);
+  strokeRect(cx - 28, cy - 28, 56, 56, C.BORDER);
   text(cx, cy, 'ID', C.ACCENT, 18, 'center', 'middle', true);
 
-  /* ロゴ */
-  text(cx, 60, 'NEXUS CONTROL SYSTEMS', C.TXT3, 12, 'center');
+  text(cx, 52, 'NEXUS CONTROL SYSTEMS', C.TXT3, 13, 'center');
+  text(cx, cy + 96, 'Present RFID card  —  or select role \u2192', C.TXT2, 13, 'center');
 
-  /* ガイド */
-  text(cx, cy + 90, 'Present RFID card  —  or select role →', C.TXT2, 13, 'center');
-
-  /* 時計 */
   const ts = `${p2(state.rtcH)}:${p2(state.rtcM)}:${p2(state.rtcS)}`;
-  text(cx, H - 60, ts, C.TXT, 36, 'center', 'middle', false);
-  text(cx, H - 24, '2026/04/10', C.TXT3, 12, 'center');
+  text(cx, H - 58, ts, C.TXT, 36, 'center', 'middle');
+  text(cx, H - 20, '2026/04/10', C.TXT3, 13, 'center');
 
-  /* カーソルハイライト（OPR/ADM） */
-  const oSel = state.lockCursor === 0;
-  const aSel = state.lockCursor === 1;
-  drawRightBtn(0, 'OPR', oSel ? C.ACCENT : C.CARD, true);
-  drawRightBtn(1, 'ADM', aSel ? C.ACCENT : C.CARD, true);
-  drawRightBtn(2, '',   C.SURF, false);
-  drawRightBtn(3, '',   C.SURF, false);
+  drawRightBtn(0, 'OPR', state.lockCursor === 0 ? C.ACCENT : C.CARD, true);
+  drawRightBtn(1, 'ADM', state.lockCursor === 1 ? C.ACCENT : C.CARD, true);
+  drawRightBtn(2, '', C.SURF, false);
+  drawRightBtn(3, '', C.SURF, false);
 }
 
 /* ═══════════════════════════════════════════════
    認証オーバーレイ
 ═══════════════════════════════════════════════ */
 function renderAuth(now) {
-  ctx.save();
-  ctx.globalAlpha = 0.75;
+  ctx.save(); ctx.globalAlpha = 0.75;
   rect(CONT_X, 0, CONT_W, H, C.BG);
   ctx.restore();
 
   const cx = CONT_X + CONT_W / 2, cy = H / 2;
-  rect(cx - 140, cy - 80, 280, 160, C.CARD);
-  strokeRect(cx - 140, cy - 80, 280, 160, C.BORDER);
+  rect(cx - 150, cy - 90, 300, 180, C.CARD);
+  strokeRect(cx - 150, cy - 90, 300, 180, C.BORDER);
 
-  /* スピナー */
   const angle = (now / 300) * Math.PI * 2;
-  ctx.strokeStyle = C.BORDER; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(cx, cy - 20, 24, 0, Math.PI * 2); ctx.stroke();
-  ctx.strokeStyle = C.ACCENT; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(cx, cy - 20, 24, angle, angle + Math.PI * 1.2); ctx.stroke();
+  ctx.strokeStyle = C.BORDER; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(cx, cy - 20, 28, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = C.ACCENT; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(cx, cy - 20, 28, angle, angle + Math.PI * 1.2); ctx.stroke();
 
-  text(cx, cy + 30, 'Authenticating...', C.TXT2, 14, 'center');
+  text(cx, cy + 40, 'Authenticating...', C.TXT2, 14, 'center');
 }
 
 /* ═══════════════════════════════════════════════
    ホーム
 ═══════════════════════════════════════════════ */
 function renderHome() {
-  let y = HDR_H + 14;
-  text(CONT_X + 8, y + 10, 'Dashboard', C.TXT, 17, 'left', 'top', true);
-  y += 28;
+  let y = HDR_H + 12;
+
+  text(CONT_X + 8, y + 12, 'Dashboard', C.TXT, 17, 'left', 'top', true);
+  y += 52;
 
   /* ステータスカード 4列 */
   const cw = Math.floor((CONT_W - 40) / 4);
-  const ch = 72;
-  const scLabels = ['MACHINE', 'SPINDLE RPM', 'PARTS', 'TEMPERATURE'];
-  for (let i = 0; i < 4; i++) {
-    const sx = CONT_X + 8 + i * (cw + 8);
-    card(sx, y, cw, ch);
-    text(sx + 8, y + 12, scLabels[i], C.TXT3, 10, 'left', 'top');
-  }
+  const ch = 88;
+  ['MACHINE', 'SPINDLE RPM', 'PARTS', 'TEMPERATURE'].forEach((lb, i) => {
+    card(CONT_X + 8 + i * (cw + 8), y, cw, ch);
+    text(CONT_X + 8 + i * (cw + 8) + 8, y + 10, lb, C.TXT3, 10, 'left', 'top');
+  });
   /* カード0: 状態 */
   { const sx = CONT_X + 8;
-    const s = state.machine === MACHINE.RUNNING ? 'RUNNING' : 'STOPPED';
-    const c_ = state.machine === MACHINE.RUNNING ? C.GREEN : C.RED;
-    text(sx + 8, y + 34, s, c_, 14, 'left', 'top', true);
-    text(sx + 8, y + 54, 'Today: 08:32:15', C.TXT2, 10, 'left', 'top'); }
+    const s  = state.machine === MACHINE.RUNNING ? 'RUNNING' : 'STOPPED';
+    const cc = state.machine === MACHINE.RUNNING ? C.GREEN : C.RED;
+    text(sx + 8, y + 36, s, cc, 14, 'left', 'top', true);
+    text(sx + 8, y + 64, 'Today: 08:32:15', C.TXT2, 10, 'left', 'top'); }
   /* カード1: RPM */
   { const sx = CONT_X + 8 + (cw + 8);
-    text(sx + 8, y + 30, state.actualRpm + '', C.TXT, 20, 'left', 'top');
-    text(sx + 52, y + 38, 'RPM', C.TXT2, 10, 'left', 'top');
-    text(sx + 8, y + 54, 'Set: ' + state.setRpm, C.TXT2, 10, 'left', 'top'); }
+    text(sx + 8, y + 32, state.actualRpm + '', C.TXT, 20, 'left', 'top');
+    text(sx + 8, y + 64, 'Set: ' + state.setRpm, C.TXT2, 10, 'left', 'top'); }
   /* カード2: 加工数 */
   { const sx = CONT_X + 8 + 2 * (cw + 8);
-    text(sx + 8, y + 30, state.partsTotal + '', C.TXT, 20, 'left', 'top');
-    text(sx + 8, y + 54, 'Today: ' + state.partsToday, C.TXT2, 10, 'left', 'top'); }
+    text(sx + 8, y + 32, state.partsTotal + '', C.TXT, 20, 'left', 'top');
+    text(sx + 8, y + 64, 'Today: ' + state.partsToday, C.TXT2, 10, 'left', 'top'); }
   /* カード3: 温度 */
   { const sx = CONT_X + 8 + 3 * (cw + 8);
-    text(sx + 8, y + 30, state.spindleTemp + '°C', C.YELLOW, 20, 'left', 'top');
-    text(sx + 8, y + 54, '▲ Rising', C.TXT2, 10, 'left', 'top'); }
+    text(sx + 8, y + 32, state.spindleTemp + '\u00b0C', C.YELLOW, 20, 'left', 'top');
+    text(sx + 8, y + 64, '\u25b2 Rising', C.TXT2, 10, 'left', 'top'); }
   y += ch + 10;
 
-  /* ゲージ */
-  const gw = Math.floor((CONT_W - 32) / 2), gh = 60;
-  /* スピンドル負荷 */
+  /* ゲージ2列 */
+  const gw = Math.floor((CONT_W - 32) / 2), gh = 72;
   card(CONT_X + 8, y, gw, gh);
   text(CONT_X + 16, y + 10, 'SPINDLE LOAD', C.TXT3, 10, 'left', 'top');
-  bar(CONT_X + 16, y + 28, gw - 32, 8, state.spindleLoad, C.ACCENT);
-  text(CONT_X + 16 + (gw - 32) / 2, y + 46, state.spindleLoad + '%', C.TXT, 11, 'center');
-  /* 冷却水 */
+  bar(CONT_X + 16, y + 32, gw - 32, 10, state.spindleLoad, C.ACCENT);
+  text(CONT_X + 16 + (gw - 32) / 2, y + 54, state.spindleLoad + '%', C.TXT, 11, 'center');
+
   card(CONT_X + 8 + gw + 8, y, gw, gh);
   text(CONT_X + 8 + gw + 16, y + 10, 'COOLANT TEMP', C.TXT3, 10, 'left', 'top');
-  bar(CONT_X + 8 + gw + 16, y + 28, gw - 32, 8, state.coolantTemp, C.TEAL);
-  text(CONT_X + 8 + gw + 16 + (gw - 32) / 2, y + 46, state.coolantTemp + '°C', C.TXT, 11, 'center');
+  bar(CONT_X + 8 + gw + 16, y + 32, gw - 32, 10, state.coolantTemp, C.TEAL);
+  text(CONT_X + 8 + gw + 16 + (gw - 32) / 2, y + 54, state.coolantTemp + '\u00b0C', C.TXT, 11, 'center');
   y += gh + 10;
 
   /* 最近のアラーム */
-  card(CONT_X + 8, y, CONT_W - 16, 78);
-  text(CONT_X + 16, y + 10, 'RECENT ALARMS', C.TXT, 11, 'left', 'top', true);
+  const ah = H - y - 8;
+  card(CONT_X + 8, y, CONT_W - 16, ah);
+  text(CONT_X + 16, y + 10, 'RECENT ALARMS', C.TXT, 12, 'left', 'top', true);
   state.alarms.slice(0, 2).forEach((al, i) => {
     const lc = al.level === 'error' ? C.RED : al.level === 'warn' ? C.YELLOW : C.ACCENT;
-    const ay = y + 30 + i * 20;
-    text(CONT_X + 16, ay, '▶', lc, 11, 'left', 'top');
+    const ay = y + 34 + i * 26;
+    text(CONT_X + 16, ay, '\u25b6', lc, 11, 'left', 'top');
     text(CONT_X + 30, ay, al.title, C.TXT, 11, 'left', 'top');
     text(RIGHT_X - 8,  ay, al.time, C.TXT3, 10, 'right', 'top');
   });
@@ -383,78 +391,80 @@ function renderHome() {
    運転操作
 ═══════════════════════════════════════════════ */
 function renderOperation() {
-  let y = HDR_H + 14;
-  text(CONT_X + 8, y + 10, 'Operation', C.TXT, 17, 'left', 'top', true);
-  y += 28;
+  let y = HDR_H + 12;
+  text(CONT_X + 8, y + 12, 'Operation', C.TXT, 17, 'left', 'top', true);
+  y += 52;
 
   const lw = Math.floor(CONT_W * 0.55);
   const rw = CONT_W - lw - 24;
   const lh = H - y - 12;
 
-  /* 左カード */
   card(CONT_X + 8, y, lw, lh);
 
   const stStr = state.machine === MACHINE.RUNNING ? 'RUNNING' : 'STOPPED';
   const stCol = state.machine === MACHINE.RUNNING ? C.GREEN   : C.RED;
   text(CONT_X + 16, y + 12, 'MACHINE CONTROL', C.TXT3, 10, 'left', 'top');
-  text(CONT_X + 16, y + 28, stStr, stCol, 16, 'left', 'top', true);
+  text(CONT_X + 16, y + 30, stStr, stCol, 16, 'left', 'top', true);
 
   /* RPM */
-  text(CONT_X + 16, y + 56, 'SET: ' + state.setRpm + ' RPM', C.TXT,  13, 'left', 'top', true);
-  text(CONT_X + 16, y + 76, 'ACT: ' + state.actualRpm + ' RPM', C.TXT2, 11, 'left', 'top');
-  bar(CONT_X + 16, y + 96, lw - 32, 8, Math.round(state.setRpm * 100 / 3000), C.ACCENT);
-  text(CONT_X + 16, y + 110, '0', C.TXT3, 10, 'left', 'top');
-  text(CONT_X + 16 + (lw - 32) / 2, y + 110, '1500', C.TXT3, 10, 'center', 'top');
-  text(CONT_X + lw - 16, y + 110, '3000', C.TXT3, 10, 'right', 'top');
+  text(CONT_X + 16, y + 64,  'SET: ' + state.setRpm + ' RPM',    C.TXT,  13, 'left', 'top', true);
+  text(CONT_X + 16, y + 86,  'ACT: ' + state.actualRpm + ' RPM', C.TXT2, 11, 'left', 'top');
+  const rpmMin = state.settingsParams.minRpm;
+  const rpmMax = state.settingsParams.maxRpm;
+  const rpmRange = rpmMax - rpmMin || 1;
+  const rpmPct = Math.round(Math.max(0, state.setRpm - rpmMin) * 100 / rpmRange);
+  bar(CONT_X + 16, y + 108, lw - 32, 10, rpmPct, rpmColor(state.setRpm));
+  text(CONT_X + 16,                  y + 124, rpmMin + '',                       C.TXT3, 10, 'left',   'top');
+  text(CONT_X + 16 + (lw - 32) / 2, y + 124, Math.round((rpmMin + rpmMax) / 2) + '', C.TXT3, 10, 'center', 'top');
+  text(CONT_X + lw - 16,            y + 124, rpmMax + '',                       C.TXT3, 10, 'right',  'top');
 
   /* 送り速度 */
-  text(CONT_X + 16, y + 132, 'FEED RATE', C.TXT3, 10, 'left', 'top');
-  ['25%', '50%', '75%', '100%'].forEach((fl, i) => {
-    const fx = CONT_X + 16 + i * 56;
-    const sel = state.feedIdx === i;
-    rect(fx, y + 148, 50, 24, sel ? C.ACCENT : C.CARD2);
-    text(fx + 25, y + 160, fl, sel ? C.WHITE : C.TXT2, 11, 'center');
+  const fv = getFeedVals();
+  text(CONT_X + 16, y + 148, 'FEED RATE', C.TXT3, 10, 'left', 'top');
+  fv.forEach((val, i) => {
+    const fx     = CONT_X + 16 + i * 62;
+    const sel    = state.feedIdx === i;
+    const is100  = val === 100;
+    const selCol = sel ? (is100 ? C.GREEN : C.ACCENT) : C.CARD2;
+    rect(fx, y + 166, 56, 28, selCol);
+    text(fx + 28, y + 180, val + '%', sel ? C.WHITE : C.TXT2, 12, 'center');
   });
 
   /* スピンドル負荷 */
-  text(CONT_X + 16, y + 188, 'SPINDLE LOAD', C.TXT3, 10, 'left', 'top');
-  bar(CONT_X + 16, y + 204, lw - 32, 8, state.spindleLoad, C.TEAL);
-  text(CONT_X + 16 + (lw - 32) / 2, y + 218, state.spindleLoad + '%', C.TXT, 11, 'center');
+  text(CONT_X + 16, y + 212, 'SPINDLE LOAD', C.TXT3, 10, 'left', 'top');
+  bar(CONT_X + 16, y + 232, lw - 32, 14, state.spindleLoad, C.TEAL);
+  text(CONT_X + 16 + (lw - 32) / 2, y + 264, state.spindleLoad + '%', C.TXT, 11, 'center');
 
   /* 右カード上：ステータス */
   const rx = CONT_X + 8 + lw + 8;
   const rh = Math.floor((lh - 8) / 2);
   card(rx, y, rw, rh);
-  text(rx + 8, y + 10, 'CURRENT STATUS', C.TXT, 11, 'left', 'top', true);
+  text(rx + 8, y + 10, 'CURRENT STATUS', C.TXT, 12, 'left', 'top', true);
 
-  const s = state;
-  const opSec = s.opSeconds;
-  const statRows = [
-    ['Status',       stStr],
-    ['Actual RPM',   s.actualRpm + ''],
-    ['Spindle Load', s.spindleLoad + '%'],
-    ['Feed Rate',    feedVals[s.feedIdx] + '%'],
-    ['Parts Today',  s.partsToday + ''],
-    ['Run Time',     `${p2(Math.floor(opSec/3600))}:${p2(Math.floor((opSec%3600)/60))}:${p2(opSec%60)}`],
-  ];
-  statRows.forEach(([k, v], i) => {
-    const ry = y + 28 + i * 20;
-    text(rx + 8,        ry, k, C.TXT2, 10, 'left', 'top');
-    text(rx + rw - 8,   ry, v, C.TXT,  10, 'right', 'top');
+  const opSec = state.opSeconds;
+  [
+    ['Status',       stStr,                          stCol],
+    ['Actual RPM',   state.actualRpm + '',           rpmColor(state.actualRpm)],
+    ['Spindle Load', state.spindleLoad + '%',        C.TXT],
+    ['Feed Rate',    getFeedVals()[state.feedIdx] + '%',  getFeedVals()[state.feedIdx] === 100 ? C.GREEN : C.TXT],
+    ['Parts Today',  state.partsToday + '',          C.TXT],
+    ['Run Time',     `${p2(Math.floor(opSec/3600))}:${p2(Math.floor((opSec%3600)/60))}:${p2(opSec%60)}`, C.TXT],
+  ].forEach(([k, v, vc], i) => {
+    const ry = y + 32 + i * 22;
+    text(rx + 8,      ry, k, C.TXT2, 10, 'left',  'top');
+    text(rx + rw - 8, ry, v, vc,     10, 'right', 'top');
   });
 
   /* 右カード下：温度 */
   const ty = y + rh + 8;
   card(rx, ty, rw, rh);
-  text(rx + 8, ty + 10, 'TEMPERATURE', C.TXT, 11, 'left', 'top', true);
-  [['Spindle', s.spindleTemp], ['Coolant', s.coolantTemp], ['Ambient', s.envTemp]].forEach(([k, v], i) => {
-    const ry = ty + 28 + i * 20;
+  text(rx + 8, ty + 10, 'TEMPERATURE', C.TXT, 12, 'left', 'top', true);
+  [['Spindle', state.spindleTemp], ['Coolant', state.coolantTemp], ['Ambient', state.envTemp]].forEach(([k, v], i) => {
+    const ry = ty + 32 + i * 24;
     text(rx + 8,      ry, k, C.TXT2, 10, 'left', 'top');
-    const tc = v > 60 ? C.YELLOW : C.TXT;
-    text(rx + rw - 8, ry, v + '°C', tc, 10, 'right', 'top');
+    text(rx + rw - 8, ry, v + '\u00b0C', v > 60 ? C.YELLOW : C.TXT, 10, 'right', 'top');
   });
 
-  /* 右ボタン */
   if (state.machine === MACHINE.RUNNING) {
     drawRightBtn(0, 'STOP', C.RED);
   } else {
@@ -469,19 +479,19 @@ function renderOperation() {
    アラーム
 ═══════════════════════════════════════════════ */
 function renderAlarm() {
-  let y = HDR_H + 14;
-  text(CONT_X + 8, y + 10, 'Alarms', C.TXT, 17, 'left', 'top', true);
-  y += 28;
+  let y = HDR_H + 12;
+  text(CONT_X + 8, y + 12, 'Alarms', C.TXT, 17, 'left', 'top', true);
+  y += 52;
 
   /* フィルタタブ */
-  const tabs = ['ALL', 'ERR', 'WARN', 'INFO'];
+  const tabs    = ['ALL', 'ERR', 'WARN', 'INFO'];
   const filters = ['all', 'error', 'warn', 'info'];
   tabs.forEach((t, i) => {
     const sel = state.alarmFilter === filters[i];
-    rect(CONT_X + 8 + i * 64, y, 58, 24, sel ? C.ACCENT : C.CARD2);
-    text(CONT_X + 8 + i * 64 + 29, y + 12, t, sel ? C.WHITE : C.TXT2, 11, 'center');
+    rect(CONT_X + 8 + i * 74, y, 68, 30, sel ? C.ACCENT : C.CARD2);
+    text(CONT_X + 8 + i * 74 + 34, y + 15, t, sel ? C.WHITE : C.TXT2, 12, 'center');
   });
-  y += 32;
+  y += 38;
 
   let shown = 0;
   state.alarms.forEach((al, i) => {
@@ -489,140 +499,191 @@ function renderAlarm() {
     if (state.alarmFilter === 'warn'  && al.level !== 'warn')  return;
     if (state.alarmFilter === 'info'  && al.level !== 'info')  return;
     const lc  = al.level === 'error' ? C.RED : al.level === 'warn' ? C.YELLOW : C.ACCENT;
-    const ay  = y + shown * 82;
+    const ay  = y + shown * 102;
     const sel = state.alarmCursor === i;
-    rect(CONT_X + 8, ay, CONT_W - 16, 76, sel ? C.CARD2 : C.CARD);
-    strokeRect(CONT_X + 8, ay, CONT_W - 16, 76, C.BORDER);
-    rect(CONT_X + 8, ay, 4, 76, lc);
-    text(CONT_X + 18, ay + 8,  al.title,  C.TXT,  13, 'left', 'top', true);
-    text(CONT_X + 18, ay + 28, al.detail, C.TXT2, 11, 'left', 'top');
-    text(CONT_X + 18, ay + 50, al.time,   C.TXT3, 10, 'left', 'top');
-    const sl = al.active ? 'ACTIVE' : 'RESET';
-    text(RIGHT_X - 95, ay + 24, sl, al.active ? lc : C.TXT3, 11, 'left', 'top');
+    rect(CONT_X + 8, ay, CONT_W - 16, 96, sel ? '#0e2a45' : C.CARD);
+    strokeRect(CONT_X + 8, ay, CONT_W - 16, 96, sel ? C.ACCENT : C.BORDER, sel ? 2 : 1);
+    rect(CONT_X + 8, ay, 6, 96, sel ? lc : lc + '88');
+    text(CONT_X + 20, ay + 10, al.title,  C.TXT,  13, 'left', 'top', true);
+    text(CONT_X + 20, ay + 38, al.detail, C.TXT2, 11, 'left', 'top');
+    text(CONT_X + 20, ay + 68, al.time,   C.TXT3, 11, 'left', 'top');
+    text(RIGHT_X - 100, ay + 30, al.active ? 'ACTIVE' : 'RESET',
+         al.active ? lc : C.TXT3, 12, 'left', 'top');
     shown++;
   });
   if (shown === 0) {
-    text(CONT_X + CONT_W / 2, y + 40, 'No alarms', C.TXT3, 14, 'center');
+    text(CONT_X + CONT_W / 2, y + 50, 'No alarms', C.TXT3, 14, 'center');
   }
 
   const canReset = state.role === ROLE.ADMIN;
-  drawRightBtn(0, 'DTL', C.CARD);
-  drawRightBtn(1, 'RST', canReset ? C.YELLOW : C.SURF, canReset);
-  drawRightBtn(2, '',   C.SURF, false);
-  drawRightBtn(3, '',   C.SURF, false);
+  drawRightBtn(0, 'DTL',  C.CARD);
+  drawRightBtn(1, 'RST',  canReset ? C.YELLOW : C.SURF, canReset);
+  drawRightBtn(2, 'FEED', C.CARD);
+  drawRightBtn(3, '', C.SURF, false);
 }
 
 /* ═══════════════════════════════════════════════
    ログ
 ═══════════════════════════════════════════════ */
 function renderLog() {
-  let y = HDR_H + 14;
-  text(CONT_X + 8, y + 10, 'Operation Log', C.TXT, 17, 'left', 'top', true);
-  y += 28;
+  let y = HDR_H + 12;
+  text(CONT_X + 8, y + 12, 'Operation Log', C.TXT, 17, 'left', 'top', true);
+  y += 52;
 
-  rect(CONT_X + 8, y, CONT_W - 16, 24, C.SURF);
-  text(CONT_X + 16,  y + 4, 'TIME',  C.TXT3, 10, 'left', 'top');
-  text(CONT_X + 110, y + 4, 'USER',  C.TXT3, 10, 'left', 'top');
-  text(CONT_X + 210, y + 4, 'EVENT', C.TXT3, 10, 'left', 'top');
-  y += 28;
+  rect(CONT_X + 8, y, CONT_W - 16, 34, C.SURF);
+  text(CONT_X + 16,  y + 8, 'TIME',  C.TXT3, 11, 'left', 'top');
+  text(CONT_X + 130, y + 8, 'USER',  C.TXT3, 11, 'left', 'top');
+  text(CONT_X + 260, y + 8, 'EVENT', C.TXT3, 11, 'left', 'top');
+  y += 38;
 
-  const logs = [
-    { time: '10:30:00', user: 'I.Tanaka', event: 'Login (Operator)' },
-    { time: '10:28:15', user: 'Y.Yamada', event: 'Alarm reset: Coolant' },
-    { time: '10:25:00', user: 'Y.Yamada', event: 'RPM changed: 1000→1200' },
-    { time: '10:00:00', user: 'Y.Yamada', event: 'Login (Admin)' },
-    { time: '09:45:30', user: 'I.Tanaka', event: 'Machine stopped' },
-    { time: '08:32:00', user: 'I.Tanaka', event: 'Machine started' },
-  ];
-  logs.forEach((l, i) => {
-    const ly = y + i * 22;
-    if (ly + 22 > H - 8) return;
-    if (i % 2 === 0) rect(CONT_X + 8, ly, CONT_W - 16, 21, C.CARD);
-    text(CONT_X + 16,  ly + 4, l.time,  C.TXT3, 10, 'left', 'top');
-    text(CONT_X + 110, ly + 4, l.user,  C.TXT2, 10, 'left', 'top');
-    text(CONT_X + 210, ly + 4, l.event, C.TXT,  10, 'left', 'top');
+  const ROW_H = 34;
+  const visibleCount = Math.floor((H - 8 - y) / ROW_H);
+  const start = state.logScroll;
+  const canUp = start > 0;
+  const canDn = start + visibleCount < LOG_DATA.length;
+
+  /* スクロール位置インジケータ */
+  const end = Math.min(start + visibleCount, LOG_DATA.length);
+  text(RIGHT_X - 8, HDR_H + 12 + 14, `${start + 1}-${end}/${LOG_DATA.length}`, C.TXT3, 10, 'right', 'top');
+
+  LOG_DATA.slice(start, start + visibleCount).forEach((l, i) => {
+    const ly = y + i * ROW_H;
+    if (i % 2 === 0) rect(CONT_X + 8, ly, CONT_W - 16, ROW_H - 1, C.CARD);
+    text(CONT_X + 16,  ly + 8, l.time,  C.TXT3, 11, 'left', 'top');
+    text(CONT_X + 130, ly + 8, l.user,  C.TXT2, 11, 'left', 'top');
+    text(CONT_X + 260, ly + 8, l.event, C.TXT,  11, 'left', 'top');
   });
 
-  [0,1,2,3].forEach(i => drawRightBtn(i, '', C.SURF, false));
+  drawRightBtn(0, 'UP', canUp ? C.CARD : C.SURF, canUp);
+  drawRightBtn(1, 'DN', canDn ? C.CARD : C.SURF, canDn);
+  [2, 3].forEach(i => drawRightBtn(i, '', C.SURF, false));
 }
 
 /* ═══════════════════════════════════════════════
    設定
 ═══════════════════════════════════════════════ */
+const SETT_ROW_H = 50;
+
 function renderSettings() {
-  let y = HDR_H + 14;
-  text(CONT_X + 8,  y + 10, 'Settings',    C.TXT,    17, 'left', 'top', true);
-  text(CONT_X + 112, y + 12, '[ADMIN ONLY]', C.YELLOW, 11, 'left', 'top');
-  y += 28;
+  let y = HDR_H + 12;
+  text(CONT_X + 8,          y + 12, 'Settings',     C.TXT,    17, 'left',  'top', true);
+  text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]', C.YELLOW, 12, 'right', 'top');
+  y += 52;
 
-  const hw = Math.floor((CONT_W - 24) / 2);
-  card(CONT_X + 8, y, hw, 200);
-  text(CONT_X + 16, y + 10, 'Operation Parameters', C.TXT, 12, 'left', 'top', true);
-  [['Max RPM','3000'],['Min RPM','0'],['Feed Override','100%'],['Tool No.','T01']].forEach(([k,v], i) => {
-    const ry = y + 36 + i * 38;
-    hline(CONT_X + 16, ry, hw - 16, C.BORDER);
-    text(CONT_X + 16, ry + 10, k, C.TXT2, 11, 'left', 'top');
-    text(CONT_X + hw,  ry + 10, v, C.TXT,  11, 'right', 'top');
+  const hw    = Math.floor((CONT_W - 24) / 2);
+  const cardH = 34 + 4 * SETT_ROW_H + 8;
+
+  /* --- Operation Parameters --- */
+  card(CONT_X + 8, y, hw, cardH);
+  text(CONT_X + 16, y + 8, 'Operation Parameters', C.TXT, 12, 'left', 'top', true);
+
+  const p = state.settingsParams;
+  const feedPatternLabel = p.feedPattern === 0 ? 'Pattern 1 (4-step)' : 'Pattern 2 (2-step)';
+  const paramRows = [
+    ['Max RPM',      p.maxRpm + ''],
+    ['Min RPM',      p.minRpm + ''],
+    ['Feed Pattern', feedPatternLabel],
+    ['Tool No.',     'T' + String(p.toolNo).padStart(2, '0')],
+  ];
+  paramRows.forEach(([k, v], i) => {
+    const ry  = y + 34 + i * SETT_ROW_H;
+    const sel = state.settingsCursor === i;
+    const ed  = sel && state.settingsEditing;
+    /* 行ハイライト：非選択=暗め / 選択=明るい青 / 編集中=さらに強調 */
+    rect(CONT_X + 8, ry, hw, SETT_ROW_H,
+         ed ? '#0d2e50' : sel ? '#1a3a5c' : (i % 2 === 0 ? C.CARD : C.BG));
+    hline(CONT_X + 16, ry, hw - 24, ed ? C.ACCENT + '66' : C.BORDER);
+    /* 左サイドバー */
+    rect(CONT_X + 8, ry, 6, SETT_ROW_H, ed ? C.ACCENT : sel ? '#4F8EF7' : C.BORDER);
+    text(CONT_X + 22, ry + 14, k, ed ? C.WHITE : sel ? C.TXT : C.TXT2, 11, 'left', 'top', sel);
+    text(CONT_X + 8 + hw - 10, ry + 14, v,
+         ed ? C.ACCENT : sel ? C.WHITE : C.TXT, 12, 'right', 'top', sel);
   });
 
+  /* --- System Info --- */
   const rx = CONT_X + 8 + hw + 8;
-  card(rx, y, hw, 200);
-  text(rx + 8, y + 10, 'System', C.TXT, 12, 'left', 'top', true);
-  [['Panel ID','CNC-7800'],['FW Version','v2.1.0'],['Display','800×480'],['Network','192.168.1.10']].forEach(([k,v], i) => {
-    const ry = y + 36 + i * 38;
-    hline(rx + 8, ry, hw - 16, C.BORDER);
-    text(rx + 8,    ry + 10, k, C.TXT2, 11, 'left', 'top');
-    text(rx + hw,   ry + 10, v, C.TXT,  11, 'right', 'top');
+  card(rx, y, hw, cardH);
+  text(rx + 8, y + 8, 'System', C.TXT, 12, 'left', 'top', true);
+  [['Panel ID','CNC-7800'],['FW Version','v2.1.0'],['Display','800\u00d7480'],['Network','192.168.1.10']].forEach(([k, v], i) => {
+    const ry = y + 34 + i * SETT_ROW_H;
+    hline(rx + 8, ry, hw - 24, C.BORDER);
+    text(rx + 8,       ry + 12, k, C.TXT2, 11, 'left',  'top');
+    text(rx + hw - 10, ry + 12, v, C.TXT,  11, 'right', 'top');
   });
 
-  drawRightBtn(0, 'SAVE', C.ACCENT);
-  [1,2,3].forEach(i => drawRightBtn(i, '', C.SURF, false));
+  /* 操作ヒント */
+  if (!state.settingsEditing) {
+    text(CONT_X + 16, y + cardH + 10, '\u2191\u2193 Select   OK = Edit', C.TXT3, 10, 'left', 'top');
+  }
+
+  if (state.settingsEditing) {
+    drawRightBtn(0, '+',   C.ACCENT, true, 26);
+    drawRightBtn(1, '-',   C.CARD,   true, 26);
+    drawRightBtn(2, 'OK',  C.GREEN);
+    drawRightBtn(3, '',    C.SURF, false);
+  } else {
+    const canSave = state.settingsChanged;
+    drawRightBtn(0, 'SAVE', canSave ? C.ACCENT : C.SURF, canSave);
+    [1, 2, 3].forEach(i => drawRightBtn(i, '', C.SURF, false));
+  }
 }
 
 /* ═══════════════════════════════════════════════
    ユーザー管理
 ═══════════════════════════════════════════════ */
+const USER_ROW_H = 46;
+
 function renderUsers() {
-  let y = HDR_H + 14;
-  text(CONT_X + 8,  y + 10, 'User Management', C.TXT,    17, 'left', 'top', true);
-  text(CONT_X + 196, y + 12, '[ADMIN ONLY]',    C.YELLOW, 11, 'left', 'top');
-  y += 28;
+  let y = HDR_H + 12;
+  text(CONT_X + 8,          y + 12, 'User Management', C.TXT,    17, 'left',  'top', true);
+  text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]',    C.YELLOW, 12, 'right', 'top');
+  y += 52;
 
-  rect(CONT_X + 8, y, CONT_W - 16, 24, C.SURF);
-  [['USER', 16], ['ROLE', 172], ['LAST LOGIN', 272], ['STATUS', 430]].forEach(([h,x]) => {
-    text(CONT_X + x, y + 4, h, C.TXT3, 10, 'left', 'top');
+  rect(CONT_X + 8, y, CONT_W - 16, 30, C.SURF);
+  [['USER', 16], ['ROLE', 180], ['LAST LOGIN', 290], ['STATUS', 460]].forEach(([h, x]) => {
+    text(CONT_X + x, y + 6, h, C.TXT3, 11, 'left', 'top');
   });
-  y += 28;
+  y += 34;
 
-  const users = [
-    { name: 'Y.Yamada', role: 'Admin',    last: '2026-04-10 10:00', status: 'Active' },
-    { name: 'I.Tanaka', role: 'Operator', last: '2026-04-10 10:30', status: 'Active' },
-    { name: 'K.Suzuki', role: 'Operator', last: '2026-04-09 14:20', status: 'Active' },
-    { name: 'H.Sato',   role: 'Viewer',   last: '2026-03-28 09:00', status: 'Inactive' },
-  ];
-  users.forEach((u, i) => {
-    const ry = y + i * 32;
-    if (i % 2 === 0) rect(CONT_X + 8, ry, CONT_W - 16, 30, C.CARD);
-    text(CONT_X + 16,  ry + 8, u.name,   C.TXT,  11, 'left', 'top');
-    text(CONT_X + 172, ry + 8, u.role,   C.TXT2, 11, 'left', 'top');
-    text(CONT_X + 272, ry + 8, u.last,   C.TXT2, 11, 'left', 'top');
-    const sc = u.status === 'Active' ? C.GREEN : C.TXT3;
-    text(CONT_X + 430, ry + 8, u.status, sc,     11, 'left', 'top');
+  USER_DATA.forEach((u, i) => {
+    const ry  = y + i * USER_ROW_H;
+    const sel = state.userCursor === i;
+    const isAdmin = u.role === 'Admin';
+    /* 行ハイライト */
+    rect(CONT_X + 8, ry, CONT_W - 16, USER_ROW_H - 2,
+         sel ? '#0e2a45' : i % 2 === 0 ? C.CARD : C.BG);
+    if (sel) {
+      strokeRect(CONT_X + 8, ry, CONT_W - 16, USER_ROW_H - 2, C.ACCENT, 1);
+      rect(CONT_X + 8, ry, 4, USER_ROW_H - 2, C.ACCENT);
+    }
+    const stLabel = u.active ? 'Active' : 'Inactive';
+    const stColor = u.active ? C.GREEN : C.TXT3;
+    text(CONT_X + 16,  ry + 12, u.name, sel ? C.TXT : C.TXT, 12, 'left', 'top');
+    text(CONT_X + 180, ry + 12, u.role, isAdmin ? C.YELLOW : C.TXT2, 12, 'left', 'top');
+    text(CONT_X + 290, ry + 12, u.last, C.TXT2, 12, 'left', 'top');
+    text(CONT_X + 460, ry + 12, stLabel, stColor, 12, 'left', 'top');
+    if (isAdmin && sel) text(CONT_X + 540, ry + 12, '(fixed)', C.TXT3, 10, 'left', 'top');
   });
 
-  [0,1,2,3].forEach(i => drawRightBtn(i, '', C.SURF, false));
+  /* 右ボタン：選択行に応じて切り替え */
+  const selUser = USER_DATA[state.userCursor];
+  const isAdmin = selUser.role === 'Admin';
+  drawRightBtn(0, 'ACTV', !isAdmin && !selUser.active  ? C.GREEN : C.SURF, !isAdmin && !selUser.active);
+  drawRightBtn(1, 'INAC', !isAdmin && selUser.active   ? C.YELLOW : C.SURF, !isAdmin && selUser.active);
+  [2, 3].forEach(i => drawRightBtn(i, '', C.SURF, false));
 }
 
 /* ═══════════════════════════════════════════════
    メニューオーバーレイ
 ═══════════════════════════════════════════════ */
+const MENU_ITEM_H = 44;  /* メニュー1項目の高さ */
+
 function renderMenu() {
-  ctx.save();
-  ctx.globalAlpha = 0.82;
+  ctx.save(); ctx.globalAlpha = 0.82;
   rect(CONT_X, 0, CONT_W, H, C.BG);
   ctx.restore();
 
-  const mx = CONT_X + 20, my = 20, mw = 220;
+  const mx = CONT_X + 20, my = 20, mw = 240;
   const menuItems = [
     { label: 'Home',      admin: false, panel: PANEL.HOME      },
     { label: 'Operation', admin: false, panel: PANEL.OPERATION },
@@ -631,20 +692,21 @@ function renderMenu() {
     { label: 'Settings',  admin: true,  panel: PANEL.SETTINGS  },
     { label: 'Users',     admin: true,  panel: PANEL.USERS     },
   ];
-  const visible = menuItems.filter(m => !m.admin || state.role === ROLE.ADMIN);
-  const totalH = 32 + visible.length * 36 + 16;
+  const visible  = menuItems.filter(m => !m.admin || state.role === ROLE.ADMIN);
+  const totalH   = 38 + visible.length * MENU_ITEM_H + 16;
   card(mx, my, mw, totalH);
-  text(mx + 12, my + 10, 'NAVIGATION', C.TXT3, 10, 'left', 'top');
+  text(mx + 14, my + 12, 'NAVIGATION', C.TXT3, 11, 'left', 'top');
 
   visible.forEach((item, i) => {
-    const iy  = my + 32 + i * 36;
+    const iy  = my + 38 + i * MENU_ITEM_H;
     const sel = state.menuCursor === i;
     const cur = state.panel === item.panel;
-    rect(mx + 4, iy, mw - 8, 32,
+    rect(mx + 4, iy, mw - 8, MENU_ITEM_H - 4,
          sel ? C.ACCENT : cur ? C.CARD2 : C.SURF);
-    text(mx + 16, iy + 10, item.label,
-         sel ? C.WHITE : cur ? C.ACCENT : C.TXT2, 14, 'left', 'top');
-    if (item.admin) text(mx + mw - 12, iy + 10, 'ADM', C.YELLOW, 10, 'right', 'top');
+    text(mx + 18, iy + (MENU_ITEM_H - 4) / 2, item.label,
+         sel ? C.WHITE : cur ? C.ACCENT : C.TXT2, 14, 'left', 'middle');
+    if (item.admin) text(mx + mw - 14, iy + (MENU_ITEM_H - 4) / 2, 'ADM',
+                         C.YELLOW, 11, 'right', 'middle');
   });
 }
 
@@ -653,8 +715,8 @@ function renderMenu() {
 ═══════════════════════════════════════════════ */
 function renderToast() {
   if (!state.toastVisible) return;
-  const tw = 300, th = 36;
-  const tx = CONT_X + (CONT_W - tw) / 2, ty = H - 50;
+  const tw = 340, th = 42;
+  const tx = CONT_X + (CONT_W - tw) / 2, ty = H - 54;
   rect(tx, ty, tw, th, C.CARD2);
   strokeRect(tx, ty, tw, th, C.BORDER);
   text(tx + tw / 2, ty + th / 2, state.toastMsg, C.TXT, 13, 'center');
@@ -666,7 +728,6 @@ function renderToast() {
 function render(now) {
   ctx.clearRect(0, 0, W, H);
   rect(0, 0, W, H, C.BG);
-
   drawLeftButtons();
 
   if (state.screen === SCREEN.LOCK) {
@@ -694,7 +755,6 @@ function render(now) {
    状態更新
 ═══════════════════════════════════════════════ */
 function update(now) {
-  /* RTC */
   if (now - state.rtcLast >= 1000) {
     state.rtcLast = now;
     state.rtcS++;
@@ -703,65 +763,51 @@ function update(now) {
     if (state.rtcH >= 24) { state.rtcH = 0; }
     if (state.machine === MACHINE.RUNNING) state.opSeconds++;
   }
-  /* 認証タイマー */
   if (state.screen === SCREEN.AUTH && now - state.authStart >= state.authDuration) {
-    state.role          = state.authPending;
-    state.userName      = state.role === ROLE.ADMIN ? 'Y.Yamada' : 'I.Tanaka';
-    state.userRoleStr   = state.role === ROLE.ADMIN ? 'Admin'    : 'Operator';
-    state.screen        = SCREEN.MAIN;
-    state.panel         = PANEL.HOME;
-    state.menuOpen      = false;
+    state.role        = state.authPending;
+    state.userName    = state.role === ROLE.ADMIN ? 'Y.Yamada' : 'I.Tanaka';
+    state.userRoleStr = state.role === ROLE.ADMIN ? 'Admin'    : 'Operator';
+    state.screen      = SCREEN.MAIN;
+    state.panel       = PANEL.HOME;
+    state.menuOpen    = false;
   }
-  /* トーストタイムアウト */
   if (state.toastVisible && now - state.toastTick >= 3000) {
     state.toastVisible = false;
   }
 }
 
 function showToast(msg, now) {
-  state.toastMsg     = msg;
-  state.toastTick    = now;
-  state.toastVisible = true;
+  state.toastMsg = msg; state.toastTick = now; state.toastVisible = true;
 }
 
 /* ═══════════════════════════════════════════════
-   タッチ / クリック処理
+   タッチ / クリック
 ═══════════════════════════════════════════════ */
 function getTag(x, y) {
-  /* 左ボタン */
   if (x < BTN_W) {
     for (let i = 0; i < 4; i++) {
-      if (y >= BTN_Y[i] && y < BTN_Y[i] + BTN_H) return i + 1; /* TAG_L1..L4 */
+      if (y >= BTN_Y[i] && y < BTN_Y[i] + BTN_H) return i + 1;
     }
     return 0;
   }
-  /* 右ボタン */
   if (x >= RIGHT_X) {
     for (let i = 0; i < 4; i++) {
-      if (y >= BTN_Y[i] && y < BTN_Y[i] + BTN_H) return 11 + i; /* TAG_R1..R4 */
+      if (y >= BTN_Y[i] && y < BTN_Y[i] + BTN_H) return 11 + i;
     }
     return 0;
   }
-  /* メニューオーバーレイ項目 */
   if (state.screen === SCREEN.MAIN && state.menuOpen) {
+    const mx = CONT_X + 20, my = 20, mw = 240;
     const menuItems = [
-      { label: 'Home',      admin: false, panel: PANEL.HOME,      tag: 21 },
-      { label: 'Operation', admin: false, panel: PANEL.OPERATION, tag: 22 },
-      { label: 'Alarms',    admin: false, panel: PANEL.ALARM,     tag: 23 },
-      { label: 'Log',       admin: false, panel: PANEL.LOG,       tag: 24 },
-      { label: 'Settings',  admin: true,  panel: PANEL.SETTINGS,  tag: 25 },
-      { label: 'Users',     admin: true,  panel: PANEL.USERS,     tag: 26 },
+      { admin: false, tag: 21 }, { admin: false, tag: 22 },
+      { admin: false, tag: 23 }, { admin: false, tag: 24 },
+      { admin: true,  tag: 25 }, { admin: true,  tag: 26 },
     ];
     const visible = menuItems.filter(m => !m.admin || state.role === ROLE.ADMIN);
-    const mx = CONT_X + 20, my = 20, mw = 220;
     if (x >= mx && x < mx + mw) {
-      visible.forEach((item, i) => {
-        const iy = my + 32 + i * 36;
-        if (y >= iy && y < iy + 32) { /* handled below */ }
-      });
       for (let i = 0; i < visible.length; i++) {
-        const iy = my + 32 + i * 36;
-        if (y >= iy && y < iy + 32) return visible[i].tag;
+        const iy = my + 38 + i * MENU_ITEM_H;
+        if (y >= iy && y < iy + MENU_ITEM_H - 4) return visible[i].tag;
       }
     }
   }
@@ -772,29 +818,32 @@ function handleTag(tag, now) {
   if (state.screen === SCREEN.AUTH) return;
 
   if (state.screen === SCREEN.LOCK) {
-    if (tag === 2) state.lockCursor = 0;         /* L2 UP → OPR */
-    if (tag === 4) state.lockCursor = 1;         /* L4 DOWN → ADM */
-    if (tag === 3) startAuth(state.lockCursor === 1 ? ROLE.ADMIN : ROLE.OPERATOR, now);
+    if (tag === 2)  state.lockCursor = 0;
+    if (tag === 4)  state.lockCursor = 1;
+    if (tag === 3)  startAuth(state.lockCursor === 1 ? ROLE.ADMIN : ROLE.OPERATOR, now);
     if (tag === 11) { state.lockCursor = 0; startAuth(ROLE.OPERATOR, now); }
     if (tag === 12) { state.lockCursor = 1; startAuth(ROLE.ADMIN,    now); }
     return;
   }
 
-  /* MAIN */
-  if (tag === 1) { state.menuOpen = !state.menuOpen; return; } /* L1 MENU */
+  if (tag === 1) { state.menuOpen = !state.menuOpen; return; }
 
   if (state.menuOpen) {
-    const cnt = menuItemCount();
+    const cnt = state.role === ROLE.ADMIN ? 6 : 4;
     if (tag === 2) { state.menuCursor = (state.menuCursor - 1 + cnt) % cnt; }
     if (tag === 4) { state.menuCursor = (state.menuCursor + 1) % cnt; }
-    if (tag === 3) { navigateToMenuCursor(); state.menuOpen = false; }
-    if (tag >= 21 && tag <= 26) {
-      const panelMap = { 21: PANEL.HOME, 22: PANEL.OPERATION, 23: PANEL.ALARM,
-                         24: PANEL.LOG,  25: PANEL.SETTINGS,  26: PANEL.USERS };
-      if (panelMap[tag] !== undefined) {
-        if ((tag === 25 || tag === 26) && state.role !== ROLE.ADMIN) return;
-        state.panel = panelMap[tag]; state.menuOpen = false;
-      }
+    if (tag === 3) {
+      const panels = state.role === ROLE.ADMIN
+        ? [PANEL.HOME, PANEL.OPERATION, PANEL.ALARM, PANEL.LOG, PANEL.SETTINGS, PANEL.USERS]
+        : [PANEL.HOME, PANEL.OPERATION, PANEL.ALARM, PANEL.LOG];
+      state.panel = panels[state.menuCursor];
+      state.menuOpen = false;
+    }
+    const panelMap = { 21: PANEL.HOME, 22: PANEL.OPERATION, 23: PANEL.ALARM,
+                       24: PANEL.LOG,  25: PANEL.SETTINGS,  26: PANEL.USERS };
+    if (panelMap[tag] !== undefined) {
+      if ((tag === 25 || tag === 26) && state.role !== ROLE.ADMIN) return;
+      state.panel = panelMap[tag]; state.menuOpen = false;
     }
     return;
   }
@@ -804,25 +853,27 @@ function handleTag(tag, now) {
       if (tag === 11) state.panel = PANEL.OPERATION;
       if (tag === 12) state.panel = PANEL.ALARM;
       if (tag === 13) state.panel = PANEL.LOG;
-      if (tag === 14) { /* EXIT */
+      if (tag === 14) {
         state.screen = SCREEN.LOCK; state.role = ROLE.NONE;
         state.userName = ''; state.userRoleStr = ''; state.lockCursor = 0;
       }
       break;
     case PANEL.OPERATION:
-      if (tag === 11) { /* RUN/STOP */
+      if (tag === 11) {
         state.machine = state.machine === MACHINE.RUNNING ? MACHINE.STOPPED : MACHINE.RUNNING;
         showToast(state.machine === MACHINE.RUNNING ? 'Machine started' : 'Machine stopped', now);
       }
-      if (tag === 12 || tag === 2) { /* RPM+ */
-        if (state.setRpm < 3000) { state.setRpm += 100; state.actualRpm = state.setRpm; }
+      if (tag === 12 || tag === 2) {
+        const maxR = state.settingsParams.maxRpm;
+        if (state.setRpm < maxR) { state.setRpm = Math.min(maxR, state.setRpm + 100); state.actualRpm = state.setRpm; }
       }
-      if (tag === 13 || tag === 4) { /* RPM- */
-        if (state.setRpm > 0) { state.setRpm -= 100; state.actualRpm = state.setRpm; }
+      if (tag === 13 || tag === 4) {
+        const minR = state.settingsParams.minRpm;
+        if (state.setRpm > minR) { state.setRpm = Math.max(minR, state.setRpm - 100); state.actualRpm = state.setRpm; }
       }
-      if (tag === 14) state.feedIdx = (state.feedIdx + 1) % 4; /* FEED */
+      if (tag === 14) state.feedIdx = (state.feedIdx + 1) % getFeedVals().length;
       break;
-    case PANEL.ALARM:
+    case PANEL.ALARM: {
       if (tag === 2) state.alarmCursor = (state.alarmCursor - 1 + state.alarms.length) % state.alarms.length;
       if (tag === 4) state.alarmCursor = (state.alarmCursor + 1) % state.alarms.length;
       if (tag === 11) showToast('Alarm detail (not implemented)', now);
@@ -830,28 +881,86 @@ function handleTag(tag, now) {
         state.alarms[state.alarmCursor].active = false;
         showToast('Alarm reset', now);
       }
+      if (tag === 13) {
+        const filters = ['all', 'error', 'warn', 'info'];
+        const idx = filters.indexOf(state.alarmFilter);
+        state.alarmFilter = filters[(idx + 1) % filters.length];
+        state.alarmCursor = 0;
+      }
       break;
-    case PANEL.SETTINGS:
-      if (tag === 11) showToast('Settings saved', now);
+    }
+    case PANEL.LOG: {
+      const ROW_H = 34;
+      const y0 = HDR_H + 12 + 34 + 38;
+      const visible = Math.floor((H - 8 - y0) / ROW_H);
+      if (tag === 2 || tag === 11) { if (state.logScroll > 0) state.logScroll--; }
+      if (tag === 4 || tag === 12) { if (state.logScroll + visible < LOG_DATA.length) state.logScroll++; }
       break;
+    }
+    case PANEL.SETTINGS: {
+      const p = state.settingsParams;
+      if (!state.settingsEditing) {
+        if (tag === 2) state.settingsCursor = (state.settingsCursor - 1 + 4) % 4;
+        if (tag === 4) state.settingsCursor = (state.settingsCursor + 1) % 4;
+        if (tag === 3) state.settingsEditing = true;
+        if (tag === 11 && state.settingsChanged) {
+          state.settingsChanged = false;
+          showToast('Settings saved', now);
+        }
+      } else {
+        /* + ボタン (R1) */
+        if (tag === 11) {
+          if (state.settingsCursor === 0) p.maxRpm = Math.min(3000, p.maxRpm + 100);
+          if (state.settingsCursor === 1) p.minRpm = Math.min(p.maxRpm - 100, p.minRpm + 100);
+          if (state.settingsCursor === 2) {
+            p.feedPattern = (p.feedPattern + 1) % 2;
+            const maxIdx = FEED_PATTERNS[p.feedPattern].length - 1;
+            if (state.feedIdx > maxIdx) state.feedIdx = maxIdx;
+          }
+          if (state.settingsCursor === 3) p.toolNo = Math.min(5, p.toolNo + 1);
+          state.settingsChanged = true;
+        }
+        /* - ボタン (R2) */
+        if (tag === 12) {
+          if (state.settingsCursor === 0) p.maxRpm = Math.max(p.minRpm + 100, p.maxRpm - 100);
+          if (state.settingsCursor === 1) p.minRpm = Math.max(0, p.minRpm - 100);
+          if (state.settingsCursor === 2) {
+            p.feedPattern = (p.feedPattern + 1) % 2;
+            const maxIdx = FEED_PATTERNS[p.feedPattern].length - 1;
+            if (state.feedIdx > maxIdx) state.feedIdx = maxIdx;
+          }
+          if (state.settingsCursor === 3) p.toolNo = Math.max(1, p.toolNo - 1);
+          state.settingsChanged = true;
+        }
+        /* OK (R3) または 決定 (L3) で編集終了 */
+        if (tag === 13 || tag === 3) state.settingsEditing = false;
+      }
+      break;
+    }
+    case PANEL.USERS: {
+      if (tag === 2) state.userCursor = (state.userCursor - 1 + USER_DATA.length) % USER_DATA.length;
+      if (tag === 4) state.userCursor = (state.userCursor + 1) % USER_DATA.length;
+      const u = USER_DATA[state.userCursor];
+      if (tag === 3 && u.role !== 'Admin') {
+        /* L3 決定でも切り替え（トグル） */
+        u.active = !u.active;
+        showToast(u.name + ' -> ' + (u.active ? 'Active' : 'Inactive'), now);
+      }
+      if (tag === 11 && u.role !== 'Admin' && !u.active) {
+        u.active = true;
+        showToast(u.name + ' -> Active', now);
+      }
+      if (tag === 12 && u.role !== 'Admin' && u.active) {
+        u.active = false;
+        showToast(u.name + ' -> Inactive', now);
+      }
+      break;
+    }
   }
 }
 
 function startAuth(role, now) {
-  state.authPending = role;
-  state.authStart   = now;
-  state.screen      = SCREEN.AUTH;
-}
-
-function menuItemCount() {
-  return state.role === ROLE.ADMIN ? 6 : 4;
-}
-
-function navigateToMenuCursor() {
-  const panels = state.role === ROLE.ADMIN
-    ? [PANEL.HOME, PANEL.OPERATION, PANEL.ALARM, PANEL.LOG, PANEL.SETTINGS, PANEL.USERS]
-    : [PANEL.HOME, PANEL.OPERATION, PANEL.ALARM, PANEL.LOG];
-  if (state.menuCursor < panels.length) state.panel = panels[state.menuCursor];
+  state.authPending = role; state.authStart = now; state.screen = SCREEN.AUTH;
 }
 
 canvas.addEventListener('click', e => {
