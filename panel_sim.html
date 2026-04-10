@@ -472,7 +472,7 @@ function renderOperation() {
   }
   drawRightBtn(1, 'RPM+', C.CARD);
   drawRightBtn(2, 'RPM-', C.CARD);
-  drawRightBtn(3, 'FEED', C.CARD);
+  drawRightBtn(3, 'PRT+', C.ACCENT);
 }
 
 /* ═══════════════════════════════════════════════
@@ -871,7 +871,11 @@ function handleTag(tag, now) {
         const minR = state.settingsParams.minRpm;
         if (state.setRpm > minR) { state.setRpm = Math.max(minR, state.setRpm - 100); state.actualRpm = state.setRpm; }
       }
-      if (tag === 14) state.feedIdx = (state.feedIdx + 1) % getFeedVals().length;
+      if (tag === 14) {
+        state.partsToday++;
+        state.partsTotal++;
+        showToast('Parts count: ' + state.partsToday, now);
+      }
       break;
     case PANEL.ALARM: {
       if (tag === 2) state.alarmCursor = (state.alarmCursor - 1 + state.alarms.length) % state.alarms.length;
