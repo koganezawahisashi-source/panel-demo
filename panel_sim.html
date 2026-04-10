@@ -260,6 +260,15 @@ function renderHeader() {
   text(RIGHT_X - 8, 10, state.userName,    C.TXT,  13, 'right', 'top');
   text(RIGHT_X - 8, 36, state.userRoleStr, C.TXT2, 12, 'right', 'top');
   text(RIGHT_X - 8, 60, ts,               C.TXT2, 13, 'right', 'top');
+
+  /* アクティブアラームバッジ */
+  const activeCount = state.alarms.filter(a => a.active).length;
+  if (activeCount > 0) {
+    const bx = CONT_X + 310 + 120;
+    const by = (HDR_H - 22) / 2;
+    rect(bx, by, 54, 22, C.RED);
+    text(bx + 27, by + 11, '\u26a0 ' + activeCount, C.WHITE, 11, 'center', 'middle', true);
+  }
 }
 
 /* ═══════════════════════════════════════════════
