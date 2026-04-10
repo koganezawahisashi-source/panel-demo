@@ -65,6 +65,7 @@
 #define COL_TEAL    0x22D3EEUL
 #define COL_GREEN   0x34D399UL
 #define COL_YELLOW  0xFBBF24UL
+#define COL_ORANGE  0xF97316UL
 #define COL_RED     0xF87171UL
 #define COL_TXT     0xE8EEF8UL
 #define COL_TXT2    0x8B9BBFUL
@@ -187,6 +188,21 @@ typedef struct {
 
     /* ロック画面カーソル (0=OPR, 1=ADM) */
     int8_t          lock_cursor;
+
+    /* ログスクロール */
+    uint8_t         log_scroll;
+
+    /* Settings */
+    uint8_t         settings_cursor;   /* 0-3: 選択行 */
+    bool            settings_editing;  /* 編集モード中 */
+    bool            settings_changed;  /* 未保存変更あり */
+    uint32_t        settings_max_rpm;  /* 0-3000, step 100 */
+    uint32_t        settings_min_rpm;  /* 0-3000, step 100 */
+    uint8_t         settings_feed_pattern; /* 0=4step, 1=2step */
+    uint8_t         settings_tool_no;  /* 1-5 */
+
+    /* ユーザー管理カーソル */
+    uint8_t         user_cursor;
 
     /* RFID アニメーション tick */
     uint32_t        anim_tick;
