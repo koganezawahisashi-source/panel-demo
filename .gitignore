@@ -1,0 +1,15 @@
+# Build outputs
+*.o
+*.elf
+*.bin
+*.uf2
+build/
+
+# Editor
+.vscode/
+*.suo
+*.user
+
+# OS
+Thumbs.db
+.DS_Store
