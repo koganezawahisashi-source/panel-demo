@@ -65,6 +65,9 @@ const C = {
 /* ═══════════════════════════════════════════════
    状態
 ═══════════════════════════════════════════════ */
+/* JST 現在時刻を取得 */
+const _jst = new Date(Date.now() + 9 * 3600000);
+
 const SCREEN  = { LOCK: 0, AUTH: 1, MAIN: 2 };
 const PANEL   = { HOME: 0, OPERATION: 1, ALARM: 2, LOG: 3, SETTINGS: 4, USERS: 5 };
 const ROLE    = { NONE: 0, OPERATOR: 1, ADMIN: 2 };
@@ -80,23 +83,46 @@ const state = {
   menuOpen: false, menuCursor: 0,
   authStart: 0, authPending: ROLE.NONE, authDuration: 1500,
   alarms: [
-    { level: 'warn', title: 'Coolant Temp High',
-      detail: 'Coolant temp exceeded 45C limit. Now 48C.',
-      time: '2026-03-31 08:15', active: true, adminOnly: true },
-    { level: 'info', title: 'Maintenance Due',
-      detail: 'Spindle oil change due 2026-04-01.',
-      time: '2026-03-31 10:00', active: true, adminOnly: false },
+    { level: 'error', title: 'Spindle Overload',
+      detail: 'Spindle load exceeded 100%. Emergency stop triggered. Check motor and reduce feed rate.',
+      time: '2026-04-12 10:45', active: true,  adminOnly: true,  viewed: false },
+    { level: 'error', title: 'Tool Wear Limit',
+      detail: 'Tool #2 wear exceeded threshold. Replace immediately before next operation.',
+      time: '2026-04-12 09:30', active: true,  adminOnly: false, viewed: false },
+    { level: 'warn',  title: 'Coolant Temp High',
+      detail: 'Coolant temp exceeded 45°C limit. Current: 48°C. Check cooling system.',
+      time: '2026-04-11 08:15', active: true,  adminOnly: true,  viewed: false },
+    { level: 'warn',  title: 'Coolant Level Low',
+      detail: 'Coolant tank below 20%. Refill required within next 4 hours.',
+      time: '2026-04-11 07:00', active: false, adminOnly: false, viewed: false },
+    { level: 'warn',  title: 'Vibration Detected',
+      detail: 'Abnormal vibration on X-axis (>0.8G). Check fixture clamp and tool holder.',
+      time: '2026-04-10 15:20', active: false, adminOnly: false, viewed: false },
+    { level: 'info',  title: 'Maintenance Due',
+      detail: 'Spindle oil change due 2026-04-01. Overdue by 11 days.',
+      time: '2026-04-10 10:00', active: true,  adminOnly: false, viewed: false },
+    { level: 'info',  title: 'Backup Complete',
+      detail: 'System parameter backup completed successfully. File: backup_20260410.dat',
+      time: '2026-04-10 08:00', active: false, adminOnly: false, viewed: false },
+    { level: 'info',  title: 'Filter Replacement',
+      detail: 'Air filter replacement scheduled. Next maintenance: 2026-04-20.',
+      time: '2026-04-09 14:00', active: false, adminOnly: false, viewed: false },
   ],
-  alarmFilter: 'all', alarmCursor: 0,
+  alarmFilter: 'all', alarmCursor: 0, alarmScroll: 0,
   lockCursor: 0,
-  logScroll: 0,
+  logScroll: 0, logFilter: 'all',
   settingsCursor: 0,
   settingsEditing: false,
   settingsChanged: false,
   settingsParams: { maxRpm: 3000, minRpm: 0, feedPattern: 0, toolNo: 1 },
   userCursor: 0,
-  rtcH: 10, rtcM: 30, rtcS: 0, rtcLast: 0,
+  rtcH: _jst.getUTCHours(), rtcM: _jst.getUTCMinutes(), rtcS: _jst.getUTCSeconds(), rtcLast: 0,
   toastMsg: '', toastTick: 0, toastVisible: false,
+  /* 認証成功バナー */
+  authNotifActive: false, authNotifStart: 0,
+  authNotifName: '', authNotifRole: '',
+  /* アラーム詳細パネル */
+  alarmDetailOpen: false, alarmDetailStart: 0, alarmDetailClosing: false,
 };
 
 /* フィードパターン（Settings で切替） */
@@ -119,21 +145,35 @@ function rpmColor(rpm) {
   return rpm >= 3000 ? C.ORANGE : rpm >= 1500 ? C.YELLOW : C.GREEN;
 }
 
-const LOG_DATA = [
-  { time: '10:30:00', user: 'I.Tanaka', event: 'Login (Operator)' },
-  { time: '10:28:15', user: 'Y.Yamada', event: 'Alarm reset: Coolant' },
-  { time: '10:25:00', user: 'Y.Yamada', event: 'RPM changed: 1000\u21921200' },
-  { time: '10:15:30', user: 'Y.Yamada', event: 'Feed rate changed: 50%\u219275%' },
-  { time: '10:00:00', user: 'Y.Yamada', event: 'Login (Admin)' },
-  { time: '09:55:10', user: 'I.Tanaka', event: 'Settings saved' },
-  { time: '09:45:30', user: 'I.Tanaka', event: 'Machine stopped' },
-  { time: '09:30:00', user: 'I.Tanaka', event: 'Alarm ack: Coolant High' },
-  { time: '09:10:00', user: 'I.Tanaka', event: 'RPM changed: 1200\u21921000' },
-  { time: '08:55:00', user: 'K.Suzuki', event: 'Login (Operator)' },
-  { time: '08:32:00', user: 'I.Tanaka', event: 'Machine started' },
-  { time: '08:30:00', user: 'I.Tanaka', event: 'Login (Operator)' },
-  { time: '08:00:00', user: 'Y.Yamada', event: 'System startup' },
+let LOG_DATA = [
+  { time: '10:30:00', user: 'I.Tanaka', cat: 'login',     event: 'Login (Operator)' },
+  { time: '10:28:15', user: 'Y.Yamada', cat: 'alarm',     event: 'Alarm reset: Coolant High' },
+  { time: '10:25:00', user: 'Y.Yamada', cat: 'operation', event: 'RPM changed: 1000\u21921200' },
+  { time: '10:20:00', user: 'Y.Yamada', cat: 'operation', event: 'Feed rate: 50%\u219275%' },
+  { time: '10:15:00', user: 'Y.Yamada', cat: 'operation', event: 'Parts count: 245' },
+  { time: '10:00:00', user: 'Y.Yamada', cat: 'login',     event: 'Login (Admin)' },
+  { time: '09:55:10', user: 'Y.Yamada', cat: 'settings',  event: 'Settings saved: Max RPM=3000' },
+  { time: '09:50:00', user: 'Y.Yamada', cat: 'user',      event: 'User H.Sato set Inactive' },
+  { time: '09:45:30', user: 'I.Tanaka', cat: 'operation', event: 'Machine stopped' },
+  { time: '09:30:00', user: 'I.Tanaka', cat: 'alarm',     event: 'Alarm reset: Vibration' },
+  { time: '09:10:00', user: 'I.Tanaka', cat: 'operation', event: 'RPM changed: 1200\u21921000' },
+  { time: '09:05:00', user: 'I.Tanaka', cat: 'operation', event: 'Feed rate: 75%\u219250%' },
+  { time: '09:00:00', user: 'I.Tanaka', cat: 'operation', event: 'Parts count: 230' },
+  { time: '08:55:00', user: 'K.Suzuki', cat: 'login',     event: 'Login (Operator)' },
+  { time: '08:50:00', user: 'K.Suzuki', cat: 'operation', event: 'Machine started' },
+  { time: '08:45:00', user: 'K.Suzuki', cat: 'alarm',     event: 'Alarm reset: Coolant Low' },
+  { time: '08:40:00', user: 'K.Suzuki', cat: 'login',     event: 'Logout' },
+  { time: '08:32:00', user: 'I.Tanaka', cat: 'operation', event: 'Machine started' },
+  { time: '08:30:00', user: 'I.Tanaka', cat: 'login',     event: 'Login (Operator)' },
+  { time: '08:00:00', user: 'Y.Yamada', cat: 'login',     event: 'System startup' },
 ];
+
+function addLog(cat, msg) {
+  const time = p2(state.rtcH) + ':' + p2(state.rtcM) + ':' + p2(state.rtcS);
+  const user = state.userName || 'System';
+  LOG_DATA.unshift({ cat, time, user, event: msg });
+  state.logScroll = 0;
+}
 
 /* ═══════════════════════════════════════════════
    Canvas
@@ -184,6 +224,25 @@ function chip(x, y, label, color) {
   ctx.strokeStyle = color + '44'; ctx.lineWidth = 1;
   ctx.strokeRect(x + .5, y + .5, tw - 1, 25);
   text(x + tw / 2, y + 13, label, color, 11, 'center');
+}
+/* 長いテキストを最大2行に折り返して描画 */
+function textWrap2(x, y1, y2, str, color, size, maxW) {
+  const scaledSize = Math.round(size * FONT_SCALE);
+  ctx.font = `400 ${scaledSize}px "Segoe UI", Arial, sans-serif`;
+  if (ctx.measureText(str).width <= maxW) {
+    text(x, y1, str, color, size, 'left', 'middle');
+    return;
+  }
+  const words = str.split(' ');
+  let line1 = '';
+  for (const w of words) {
+    const test = line1 ? line1 + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW) break;
+    line1 = test;
+  }
+  const line2 = str.slice(line1.length).trim();
+  text(x, y1, line1, color, size, 'left', 'middle');
+  if (line2) text(x, y2, line2, color, size, 'left', 'middle');
 }
 
 /* ═══════════════════════════════════════════════
@@ -327,6 +386,124 @@ function renderAuth(now) {
   ctx.beginPath(); ctx.arc(cx, cy - 20, 28, angle, angle + Math.PI * 1.2); ctx.stroke();
 
   text(cx, cy + 40, 'Authenticating...', C.TXT2, 14, 'center');
+}
+
+/* ═══════════════════════════════════════════════
+   認証成功バナー（上端からスライドイン）
+═══════════════════════════════════════════════ */
+function renderAuthNotif(now) {
+  const SLIDE_MS = 220, HOLD_MS = 1000, TOTAL_MS = SLIDE_MS * 2 + HOLD_MS;
+  const elapsed  = now - state.authNotifStart;
+  if (elapsed >= TOTAL_MS) { state.authNotifActive = false; return; }
+
+  const panelH = Math.floor(H / 4);   /* 120px */
+  let offsetY;
+  if (elapsed < SLIDE_MS) {
+    const t = elapsed / SLIDE_MS;
+    offsetY = -panelH * (1 - (1 - Math.pow(1 - t, 3)));   /* ease-out cubic */
+  } else if (elapsed < SLIDE_MS + HOLD_MS) {
+    offsetY = 0;
+  } else {
+    const t = (elapsed - SLIDE_MS - HOLD_MS) / SLIDE_MS;
+    offsetY = -panelH * Math.pow(t, 3);                    /* ease-in cubic */
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(CONT_X, 0, CONT_W, panelH);
+  ctx.clip();
+
+  rect(CONT_X, offsetY, CONT_W, panelH, '#0d2040');
+  /* 下辺アクセントライン */
+  ctx.strokeStyle = C.GREEN; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(CONT_X, offsetY + panelH); ctx.lineTo(CONT_X + CONT_W, offsetY + panelH); ctx.stroke();
+  /* チェックサークル */
+  const cx  = CONT_X + 64, cy = offsetY + panelH / 2;
+  ctx.strokeStyle = C.GREEN; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(cx, cy, 22, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = C.GREEN; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(cx - 11, cy); ctx.lineTo(cx - 3, cy + 9); ctx.lineTo(cx + 12, cy - 10); ctx.stroke();
+  /* テキスト */
+  const tx = CONT_X + 110;
+  text(tx, offsetY + 28, 'Authentication Successful', C.GREEN, 13, 'left', 'middle', true);
+  text(tx, offsetY + 60, state.authNotifName, C.TXT,  18, 'left', 'middle', true);
+  text(tx, offsetY + 94, state.authNotifRole, C.TXT2, 13, 'left', 'middle');
+
+  ctx.restore();
+}
+
+/* ═══════════════════════════════════════════════
+   アラーム詳細パネル（タブが隠れる高さまでスライドイン）
+═══════════════════════════════════════════════ */
+function renderAlarmDetail(now) {
+  const SLIDE_MS = 300;
+  /* タブ行（y≈144）が隠れる高さ：H - HDR_H - 40 */
+  const panelH   = H - HDR_H - 40;   /* 約 360px */
+  const elapsed  = now - state.alarmDetailStart;
+
+  let offsetY;
+  if (state.alarmDetailClosing) {
+    const t = Math.min(elapsed / SLIDE_MS, 1);
+    offsetY  = panelH * Math.pow(t, 3);
+    if (t >= 1) { state.alarmDetailOpen = false; state.alarmDetailClosing = false; return; }
+  } else {
+    const t = Math.min(elapsed / SLIDE_MS, 1);
+    offsetY  = panelH * (1 - (1 - Math.pow(1 - t, 3)));
+  }
+
+  const al  = state.alarms[state.alarmCursor];
+  const lc  = al.level === 'error' ? C.RED : al.level === 'warn' ? C.YELLOW : C.ACCENT;
+  const py  = H - panelH + offsetY;
+  const DW  = CONT_W - 28;   /* 詳細テキスト最大幅 */
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(CONT_X, H - panelH, CONT_W, panelH);
+  ctx.clip();
+
+  /* ─── 背景・上辺アクセント ─── */
+  rect(CONT_X, py, CONT_W, panelH, '#081828');
+  ctx.strokeStyle = lc; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(CONT_X, py); ctx.lineTo(CONT_X + CONT_W, py); ctx.stroke();
+
+  /* ─── ヘッダ行 ─── */
+  const lvlLabel = al.level.toUpperCase();
+  rect(CONT_X + 14, py + 16, 68, 28, lc + '33');
+  strokeRect(CONT_X + 14, py + 16, 68, 28, lc, 1);
+  text(CONT_X + 48,          py + 30, lvlLabel,  lc,    12, 'center', 'middle', true);
+  text(CONT_X + 94,          py + 30, al.title,  C.TXT, 15, 'left',   'middle', true);
+  const stLabel = al.active ? 'ACTIVE' : 'RESET';
+  const stCol   = al.active ? C.RED    : C.GREEN;
+  rect(CONT_X + CONT_W - 90, py + 16, 76, 28, stCol + '33');
+  strokeRect(CONT_X + CONT_W - 90, py + 16, 76, 28, stCol, 1);
+  text(CONT_X + CONT_W - 52, py + 30, stLabel, stCol, 12, 'center', 'middle', true);
+
+  hline(CONT_X + 14, py + 58, DW, C.BORDER);
+
+  /* ─── 詳細テキスト（2行折り返し対応、常に2行分の高さを確保） ─── */
+  text(CONT_X + 14, py + 74, 'Detail', C.TXT3, 10, 'left', 'middle', true);
+  textWrap2(CONT_X + 14, py + 96, py + 124, al.detail, C.TXT2, 12, DW);
+
+  hline(CONT_X + 14, py + 148, DW, C.BORDER);
+
+  /* ─── メタ情報 ─── */
+  const LX = CONT_X + 14, VX = CONT_X + 130;
+  text(LX, py + 168, 'Time',      C.TXT3, 11, 'left', 'middle', true);
+  text(VX, py + 168, al.time,     C.TXT,  11, 'left', 'middle');
+  text(LX, py + 198, 'Level',     C.TXT3, 11, 'left', 'middle', true);
+  text(VX, py + 198, al.level.charAt(0).toUpperCase() + al.level.slice(1), lc, 11, 'left', 'middle', true);
+  text(LX, py + 228, 'Reset Auth',C.TXT3, 11, 'left', 'middle', true);
+  text(VX, py + 228, al.adminOnly ? 'Admin only' : 'Any user',
+       al.adminOnly ? C.YELLOW : C.TXT2, 11, 'left', 'middle');
+  text(LX, py + 258, 'Status',    C.TXT3, 11, 'left', 'middle', true);
+  text(VX, py + 258, stLabel,     stCol,  11, 'left', 'middle', true);
+
+  hline(CONT_X + 14, py + 282, DW, C.BORDER);
+
+  /* ─── フッタヒント ─── */
+  text(CONT_X + CONT_W / 2, py + 310, '[ DTL ] to close', C.TXT3, 10, 'center', 'middle');
+
+  ctx.restore();
 }
 
 /* ═══════════════════════════════════════════════
@@ -481,7 +658,7 @@ function renderOperation() {
   }
   drawRightBtn(1, 'RPM+', C.CARD);
   drawRightBtn(2, 'RPM-', C.CARD);
-  drawRightBtn(3, 'PRT+', C.ACCENT);
+  drawRightBtn(3, 'FEED', C.CARD);
 }
 
 /* ═══════════════════════════════════════════════
@@ -502,66 +679,119 @@ function renderAlarm() {
   });
   y += 38;
 
-  let shown = 0;
-  state.alarms.forEach((al, i) => {
-    if (state.alarmFilter === 'error' && al.level !== 'error') return;
-    if (state.alarmFilter === 'warn'  && al.level !== 'warn')  return;
-    if (state.alarmFilter === 'info'  && al.level !== 'info')  return;
-    const lc  = al.level === 'error' ? C.RED : al.level === 'warn' ? C.YELLOW : C.ACCENT;
-    const ay  = y + shown * 102;
-    const sel = state.alarmCursor === i;
-    rect(CONT_X + 8, ay, CONT_W - 16, 96, sel ? '#0e2a45' : C.CARD);
-    strokeRect(CONT_X + 8, ay, CONT_W - 16, 96, sel ? C.ACCENT : C.BORDER, sel ? 2 : 1);
-    rect(CONT_X + 8, ay, 6, 96, sel ? lc : lc + '88');
-    text(CONT_X + 20, ay + 10, al.title,  C.TXT,  13, 'left', 'top', true);
-    text(CONT_X + 20, ay + 38, al.detail, C.TXT2, 11, 'left', 'top');
-    text(CONT_X + 20, ay + 68, al.time,   C.TXT3, 11, 'left', 'top');
-    text(RIGHT_X - 100, ay + 30, al.active ? 'ACTIVE' : 'RESET',
-         al.active ? lc : C.TXT3, 12, 'left', 'top');
-    shown++;
+  const ROW_H_AL = 64;
+  const filtered = state.alarms.map((al, i) => ({ al, i })).filter(({ al }) => {
+    if (state.alarmFilter === 'error') return al.level === 'error';
+    if (state.alarmFilter === 'warn')  return al.level === 'warn';
+    if (state.alarmFilter === 'info')  return al.level === 'info';
+    return true;
   });
-  if (shown === 0) {
+  const visAl = Math.floor((H - 8 - y) / ROW_H_AL);
+  /* カーソルが見えるようスクロール自動調整 */
+  const curPos = filtered.findIndex(({ i }) => i === state.alarmCursor);
+  if (curPos >= 0) {
+    if (curPos < state.alarmScroll) state.alarmScroll = curPos;
+    if (curPos >= state.alarmScroll + visAl) state.alarmScroll = curPos - visAl + 1;
+  }
+  /* スクロール表示件数インジケータ */
+  if (filtered.length > 0) {
+    const end = Math.min(state.alarmScroll + visAl, filtered.length);
+    text(RIGHT_X - 8, HDR_H + 20, `${state.alarmScroll + 1}-${end}/${filtered.length}`, C.TXT3, 10, 'right', 'top');
+  }
+  filtered.slice(state.alarmScroll, state.alarmScroll + visAl).forEach(({ al, i }, row) => {
+    const lc  = al.level === 'error' ? C.RED : al.level === 'warn' ? C.YELLOW : C.ACCENT;
+    const ay  = y + row * ROW_H_AL;
+    const rh  = ROW_H_AL - 2;
+    const sel = state.alarmCursor === i;
+    rect(CONT_X + 8, ay, CONT_W - 16, rh, sel ? '#0e2a45' : C.CARD);
+    strokeRect(CONT_X + 8, ay, CONT_W - 16, rh, sel ? C.ACCENT : C.BORDER, sel ? 2 : 1);
+    rect(CONT_X + 8, ay, 6, rh, sel ? lc : lc + '88');
+    /* 行1：タイトル（左）＋ ACTIVE/RESET バッジ（右） */
+    text(CONT_X + 20, ay + 14, al.title, C.TXT, 12, 'left', 'middle', true);
+    const stLabel = al.active ? 'ACTIVE' : 'RESET';
+    const stCol   = al.active ? lc       : C.TXT3;
+    text(CONT_X + CONT_W - 24, ay + 14, stLabel, stCol, 10, 'right', 'middle', al.active);
+    /* 行2：レベル色ドット（既読はグレー） ＋ 日時 */
+    ctx.fillStyle = al.viewed ? C.TXT3 : lc;
+    ctx.beginPath(); ctx.arc(CONT_X + 23, ay + 44, 4, 0, Math.PI * 2); ctx.fill();
+    text(CONT_X + 34, ay + 44, al.time, C.TXT2, 10, 'left', 'middle');
+  });
+  if (filtered.length === 0) {
     text(CONT_X + CONT_W / 2, y + 50, 'No alarms', C.TXT3, 14, 'center');
   }
 
-  const canReset = state.role === ROLE.ADMIN;
+  const canReset  = state.role === ROLE.ADMIN;
+  const feedEn    = !state.alarmDetailOpen;
   drawRightBtn(0, 'DTL',  C.CARD);
   drawRightBtn(1, 'RST',  canReset ? C.YELLOW : C.SURF, canReset);
-  drawRightBtn(2, 'FEED', C.CARD);
+  drawRightBtn(2, 'FEED', feedEn ? C.CARD : C.SURF, feedEn);
   drawRightBtn(3, '', C.SURF, false);
 }
 
 /* ═══════════════════════════════════════════════
    ログ
 ═══════════════════════════════════════════════ */
+const LOG_CATS   = ['all',   'login',  'operation', 'alarm',  'log',  'settings', 'user'];
+const LOG_LABELS = ['ALL',   'LOGIN',  'OPER',      'ALARM',  'LOG',  'SETT',     'USER'];
+const LOG_TAB_W  = 82, LOG_TAB_GAP = 4;
+
 function renderLog() {
   let y = HDR_H + 12;
   text(CONT_X + 8, y + 12, 'Operation Log', C.TXT, 17, 'left', 'top', true);
   y += 52;
 
-  rect(CONT_X + 8, y, CONT_W - 16, 34, C.SURF);
-  text(CONT_X + 16,  y + 8, 'TIME',  C.TXT3, 11, 'left', 'top');
-  text(CONT_X + 130, y + 8, 'USER',  C.TXT3, 11, 'left', 'top');
-  text(CONT_X + 260, y + 8, 'EVENT', C.TXT3, 11, 'left', 'top');
+  /* カテゴリタブ */
+  const isAdmin = state.role === ROLE.ADMIN;
+  LOG_LABELS.forEach((lbl, i) => {
+    const cat      = LOG_CATS[i];
+    const disabled = !isAdmin && (cat === 'settings' || cat === 'user');
+    const sel      = state.logFilter === cat;
+    const tx       = CONT_X + 8 + i * (LOG_TAB_W + LOG_TAB_GAP);
+    rect(tx, y, LOG_TAB_W, 30, sel ? C.ACCENT : (disabled ? C.BG : C.CARD2));
+    strokeRect(tx, y, LOG_TAB_W, 30, sel ? C.ACCENT : C.BORDER);
+    text(tx + LOG_TAB_W / 2, y + 15, lbl,
+         sel ? C.WHITE : (disabled ? C.TXT3 : C.TXT2), 10, 'center', 'middle', !sel);
+  });
   y += 38;
+
+  /* カラムヘッダ */
+  rect(CONT_X + 8, y, CONT_W - 16, 30, C.SURF);
+  text(CONT_X + 16,  y + 6, 'TIME',  C.TXT3, 10, 'left', 'top');
+  text(CONT_X + 130, y + 6, 'USER',  C.TXT3, 10, 'left', 'top');
+  text(CONT_X + 260, y + 6, 'EVENT', C.TXT3, 10, 'left', 'top');
+  y += 34;
+
+  /* フィルタ */
+  const filteredLog = LOG_DATA.filter(l => {
+    if (state.logFilter === 'all') return true;
+    return l.cat === state.logFilter;
+  });
 
   const ROW_H = 34;
   const visibleCount = Math.floor((H - 8 - y) / ROW_H);
-  const start = state.logScroll;
+  const start = Math.min(state.logScroll, Math.max(0, filteredLog.length - visibleCount));
+  state.logScroll = start;
   const canUp = start > 0;
-  const canDn = start + visibleCount < LOG_DATA.length;
+  const canDn = start + visibleCount < filteredLog.length;
 
   /* スクロール位置インジケータ */
-  const end = Math.min(start + visibleCount, LOG_DATA.length);
-  text(RIGHT_X - 8, HDR_H + 12 + 14, `${start + 1}-${end}/${LOG_DATA.length}`, C.TXT3, 10, 'right', 'top');
+  if (filteredLog.length > 0) {
+    const end = Math.min(start + visibleCount, filteredLog.length);
+    text(RIGHT_X - 8, HDR_H + 12 + 14, `${start + 1}-${end}/${filteredLog.length}`, C.TXT3, 10, 'right', 'top');
+  }
 
-  LOG_DATA.slice(start, start + visibleCount).forEach((l, i) => {
-    const ly = y + i * ROW_H;
+  filteredLog.slice(start, start + visibleCount).forEach((l, i) => {
+    const ly  = y + i * ROW_H;
+    const lc  = l.cat === 'alarm' ? C.YELLOW : l.cat === 'login' ? C.ACCENT :
+                l.cat === 'settings' || l.cat === 'user' ? C.TEAL : C.TXT;
     if (i % 2 === 0) rect(CONT_X + 8, ly, CONT_W - 16, ROW_H - 1, C.CARD);
-    text(CONT_X + 16,  ly + 8, l.time,  C.TXT3, 11, 'left', 'top');
-    text(CONT_X + 130, ly + 8, l.user,  C.TXT2, 11, 'left', 'top');
-    text(CONT_X + 260, ly + 8, l.event, C.TXT,  11, 'left', 'top');
+    text(CONT_X + 16,  ly + 8, l.time,  C.TXT3, 10, 'left', 'top');
+    text(CONT_X + 130, ly + 8, l.user,  C.TXT2, 10, 'left', 'top');
+    text(CONT_X + 260, ly + 8, l.event, lc,     10, 'left', 'top');
   });
+  if (filteredLog.length === 0) {
+    text(CONT_X + CONT_W / 2, y + 40, 'No records', C.TXT3, 13, 'center');
+  }
 
   drawRightBtn(0, 'UP', canUp ? C.CARD : C.SURF, canUp);
   drawRightBtn(1, 'DN', canDn ? C.CARD : C.SURF, canDn);
@@ -756,6 +986,8 @@ function render(now) {
       case PANEL.USERS:     renderUsers();     break;
     }
     if (state.menuOpen) renderMenu();
+    if (state.panel === PANEL.ALARM && state.alarmDetailOpen) renderAlarmDetail(now);
+    if (state.authNotifActive) renderAuthNotif(now);
     renderToast();
   }
 }
@@ -779,6 +1011,12 @@ function update(now) {
     state.screen      = SCREEN.MAIN;
     state.panel       = PANEL.HOME;
     state.menuOpen    = false;
+    /* 認証成功バナー起動 */
+    state.authNotifActive = true;
+    state.authNotifStart  = now;
+    state.authNotifName   = state.userName;
+    state.authNotifRole   = state.userRoleStr;
+    addLog('login', 'Login (' + state.userRoleStr + '): ' + state.userName);
   }
   if (state.toastVisible && now - state.toastTick >= 3000) {
     state.toastVisible = false;
@@ -804,6 +1042,16 @@ function getTag(x, y) {
       if (y >= BTN_Y[i] && y < BTN_Y[i] + BTN_H) return 11 + i;
     }
     return 0;
+  }
+  /* ログカテゴリタブ（タグ 30-36） */
+  if (state.screen === SCREEN.MAIN && state.panel === PANEL.LOG && !state.menuOpen) {
+    const tabY = HDR_H + 12 + 52;
+    if (y >= tabY && y < tabY + 30) {
+      for (let i = 0; i < LOG_CATS.length; i++) {
+        const tx = CONT_X + 8 + i * (LOG_TAB_W + LOG_TAB_GAP);
+        if (x >= tx && x < tx + LOG_TAB_W) return 30 + i;
+      }
+    }
   }
   if (state.screen === SCREEN.MAIN && state.menuOpen) {
     const mx = CONT_X + 20, my = 20, mw = 240;
@@ -863,51 +1111,103 @@ function handleTag(tag, now) {
       if (tag === 12) state.panel = PANEL.ALARM;
       if (tag === 13) state.panel = PANEL.LOG;
       if (tag === 14) {
+        addLog('login', 'Logout: ' + state.userName);
         state.screen = SCREEN.LOCK; state.role = ROLE.NONE;
         state.userName = ''; state.userRoleStr = ''; state.lockCursor = 0;
       }
       break;
     case PANEL.OPERATION:
       if (tag === 11) {
+        const prev = state.machine;
         state.machine = state.machine === MACHINE.RUNNING ? MACHINE.STOPPED : MACHINE.RUNNING;
-        showToast(state.machine === MACHINE.RUNNING ? 'Machine started' : 'Machine stopped', now);
+        const msg = state.machine === MACHINE.RUNNING ? 'Machine started' : 'Machine stopped';
+        showToast(msg, now);
+        addLog('operation', msg);
       }
       if (tag === 12 || tag === 2) {
         const maxR = state.settingsParams.maxRpm;
-        if (state.setRpm < maxR) { state.setRpm = Math.min(maxR, state.setRpm + 100); state.actualRpm = state.setRpm; }
+        if (state.setRpm < maxR) {
+          const prev = state.setRpm;
+          state.setRpm = Math.min(maxR, state.setRpm + 100); state.actualRpm = state.setRpm;
+          addLog('operation', 'RPM: ' + prev + '\u2192' + state.setRpm);
+        }
       }
       if (tag === 13 || tag === 4) {
         const minR = state.settingsParams.minRpm;
-        if (state.setRpm > minR) { state.setRpm = Math.max(minR, state.setRpm - 100); state.actualRpm = state.setRpm; }
+        if (state.setRpm > minR) {
+          const prev = state.setRpm;
+          state.setRpm = Math.max(minR, state.setRpm - 100); state.actualRpm = state.setRpm;
+          addLog('operation', 'RPM: ' + prev + '\u2192' + state.setRpm);
+        }
       }
       if (tag === 14) {
-        state.partsToday++;
-        state.partsTotal++;
-        showToast('Parts count: ' + state.partsToday, now);
+        const prev = getFeedVals()[state.feedIdx];
+        state.feedIdx = (state.feedIdx + 1) % getFeedVals().length;
+        const next = getFeedVals()[state.feedIdx];
+        addLog('operation', 'Feed rate: ' + prev + '%\u2192' + next + '%');
       }
       break;
     case PANEL.ALARM: {
-      if (tag === 2) state.alarmCursor = (state.alarmCursor - 1 + state.alarms.length) % state.alarms.length;
-      if (tag === 4) state.alarmCursor = (state.alarmCursor + 1) % state.alarms.length;
-      if (tag === 11) showToast('Alarm detail (not implemented)', now);
-      if (tag === 12 && state.role === ROLE.ADMIN) {
-        state.alarms[state.alarmCursor].active = false;
-        showToast('Alarm reset', now);
+      if (tag === 2 || tag === 4) {
+        const filt = state.alarms.map((al, i) => ({ al, i })).filter(({ al }) => {
+          if (state.alarmFilter === 'error') return al.level === 'error';
+          if (state.alarmFilter === 'warn')  return al.level === 'warn';
+          if (state.alarmFilter === 'info')  return al.level === 'info';
+          return true;
+        });
+        const pos = filt.findIndex(({ i }) => i === state.alarmCursor);
+        if (tag === 2 && pos > 0)              state.alarmCursor = filt[pos - 1].i;
+        if (tag === 4 && pos < filt.length - 1) state.alarmCursor = filt[pos + 1].i;
       }
-      if (tag === 13) {
+      if (tag === 11) {
+        if (state.alarmDetailOpen && !state.alarmDetailClosing) {
+          state.alarmDetailClosing = true;
+          state.alarmDetailStart   = now;
+        } else if (!state.alarmDetailOpen) {
+          state.alarmDetailOpen    = true;
+          state.alarmDetailClosing = false;
+          state.alarmDetailStart   = now;
+          state.alarms[state.alarmCursor].viewed = true;
+        }
+      }
+      if (tag === 12 && state.role === ROLE.ADMIN) {
+        const al = state.alarms[state.alarmCursor];
+        al.active = false;
+        showToast('Alarm reset: ' + al.title, now);
+        addLog('alarm', 'Alarm reset: ' + al.title);
+      }
+      if (tag === 13 && !state.alarmDetailOpen) {
         const filters = ['all', 'error', 'warn', 'info'];
         const idx = filters.indexOf(state.alarmFilter);
         state.alarmFilter = filters[(idx + 1) % filters.length];
-        state.alarmCursor = 0;
+        state.alarmScroll = 0;
+        /* 現在のカーソルが新フィルタの対象外なら先頭項目を選択 */
+        const newFiltered = state.alarms.map((al, i) => ({ al, i })).filter(({ al }) => {
+          if (state.alarmFilter === 'error') return al.level === 'error';
+          if (state.alarmFilter === 'warn')  return al.level === 'warn';
+          if (state.alarmFilter === 'info')  return al.level === 'info';
+          return true;
+        });
+        const stillVisible = newFiltered.some(({ i }) => i === state.alarmCursor);
+        if (!stillVisible && newFiltered.length > 0) state.alarmCursor = newFiltered[0].i;
       }
       break;
     }
     case PANEL.LOG: {
+      /* カテゴリタブ（タグ 30-36） */
+      if (tag >= 30 && tag <= 36) {
+        const cat = LOG_CATS[tag - 30];
+        if ((cat === 'settings' || cat === 'user') && state.role !== ROLE.ADMIN) return;
+        state.logFilter = cat;
+        state.logScroll = 0;
+        return;
+      }
       const ROW_H = 34;
-      const y0 = HDR_H + 12 + 34 + 38;
+      const y0 = HDR_H + 12 + 52 + 38 + 34;
+      const filtLen = LOG_DATA.filter(l => state.logFilter === 'all' || l.cat === state.logFilter).length;
       const visible = Math.floor((H - 8 - y0) / ROW_H);
       if (tag === 2 || tag === 11) { if (state.logScroll > 0) state.logScroll--; }
-      if (tag === 4 || tag === 12) { if (state.logScroll + visible < LOG_DATA.length) state.logScroll++; }
+      if (tag === 4 || tag === 12) { if (state.logScroll + visible < filtLen) state.logScroll++; }
       break;
     }
     case PANEL.SETTINGS: {
@@ -919,6 +1219,7 @@ function handleTag(tag, now) {
         if (tag === 11 && state.settingsChanged) {
           state.settingsChanged = false;
           showToast('Settings saved', now);
+          addLog('settings', 'Settings saved: MaxRPM=' + p.maxRpm + ' MinRPM=' + p.minRpm + ' Tool=T0' + p.toolNo);
         }
       } else {
         /* + ボタン (R1) */
@@ -955,17 +1256,20 @@ function handleTag(tag, now) {
       if (tag === 4) state.userCursor = (state.userCursor + 1) % USER_DATA.length;
       const u = USER_DATA[state.userCursor];
       if (tag === 3 && u.role !== 'Admin') {
-        /* L3 決定でも切り替え（トグル） */
         u.active = !u.active;
-        showToast(u.name + ' -> ' + (u.active ? 'Active' : 'Inactive'), now);
+        const msg = u.name + ': ' + (u.active ? 'Active' : 'Inactive');
+        showToast(msg, now);
+        addLog('user', 'User ' + msg);
       }
       if (tag === 11 && u.role !== 'Admin' && !u.active) {
         u.active = true;
         showToast(u.name + ' -> Active', now);
+        addLog('user', 'User ' + u.name + ' set Active');
       }
       if (tag === 12 && u.role !== 'Admin' && u.active) {
         u.active = false;
         showToast(u.name + ' -> Inactive', now);
+        addLog('user', 'User ' + u.name + ' set Inactive');
       }
       break;
     }
