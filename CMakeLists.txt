@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 3.13)
 # ─────────────────────────────────────────────────
 # pico-sdk のインポート（PICO_SDK_PATH 環境変数を使用）
 # ─────────────────────────────────────────────────
-include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
+file(TO_CMAKE_PATH "$ENV{PICO_SDK_PATH}" PICO_SDK_PATH_FIXED)
+include(${PICO_SDK_PATH_FIXED}/external/pico_sdk_import.cmake)
 
 project(panel_demo C CXX ASM)
 set(CMAKE_C_STANDARD   11)
@@ -22,10 +23,8 @@ if(NOT DEFINED ENV{EVEAPPS_PATH})
     )
 endif()
 
-set(EVEAPPS ${CMAKE_SOURCE_DIR}/../EveApps)
-if(DEFINED ENV{EVEAPPS_PATH})
-    set(EVEAPPS $ENV{EVEAPPS_PATH})
-endif()
+# バックスラッシュをスラッシュに変換（Windows パス対応）
+file(TO_CMAKE_PATH "$ENV{EVEAPPS_PATH}" EVEAPPS)
 
 set(EVE_HAL_DIR ${EVEAPPS}/common/eve_hal)
 
@@ -34,10 +33,20 @@ set(EVE_HAL_DIR ${EVEAPPS}/common/eve_hal)
 # ─────────────────────────────────────────────────
 set(EVE_HAL_SOURCES
     ${EVE_HAL_DIR}/EVE_Hal.c
+    ${EVE_HAL_DIR}/EVE_Cmd.c
     ${EVE_HAL_DIR}/EVE_CoDl.c
     ${EVE_HAL_DIR}/EVE_CoCmd.c
+    ${EVE_HAL_DIR}/EVE_CoCmd_IO.c
+    ${EVE_HAL_DIR}/EVE_CoCmd_State.c
+    ${EVE_HAL_DIR}/EVE_CoCmd_Widgets.c
     ${EVE_HAL_DIR}/EVE_Util.c
-    ${EVE_HAL_DIR}/EVE_HalImpl_RPIPICO.c
+    ${EVE_HAL_DIR}/EVE_LoadFile_FATFS.c
+    ${EVE_HAL_DIR}/EVE_MediaFifo.c
+    ${EVEAPPS}/common/application/fatfs/source/ff.c
+    ${EVEAPPS}/common/application/fatfs/source/ffsystem.c
+    ${EVEAPPS}/common/application/fatfs/source/diskio_rp2040.c
+    ${EVE_HAL_DIR}/EVE_GpuDefs_BT81X.c
+    ${EVE_HAL_DIR}/EVE_HalImpl_RP2040.c
 )
 
 # ─────────────────────────────────────────────────
@@ -55,18 +64,16 @@ add_executable(panel_demo
 target_include_directories(panel_demo PRIVATE
     ${CMAKE_SOURCE_DIR}
     ${EVE_HAL_DIR}
-    ${EVEAPPS}/common/eve_hal
+    ${EVEAPPS}/common/application/fatfs/source
 )
 
 # ─────────────────────────────────────────────────
-# コンパイルオプション：BT817 / RP2040 向け定義
+# コンパイルオプション：IDM2040-7A (BT817 + RP2040 + WVGA)
 # ─────────────────────────────────────────────────
 target_compile_definitions(panel_demo PRIVATE
-    EVE_SUPPORT_CHIPID=EVE_BT817
-    DISPLAY_RESOLUTION_WVGA
-    EVE_SUPPORT_DISPLAY=WVGA
+    EVE_GRAPHICS_IDM2040
     EVE_PLATFORM_RP2040
-    PICO_BOARD_HEADER_FILES="boards/pico.h"
+    EVE_DISPLAY_WVGA
 )
 
 # ─────────────────────────────────────────────────

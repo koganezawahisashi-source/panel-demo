@@ -31,39 +31,11 @@
 #define PIN_CS      5
 #define PIN_PD      6
 
-/* SPI クロック（BT817 最大 30MHz、安全側で 20MHz） */
-#define SPI_FREQ_HZ (20 * 1000 * 1000)
-
 /* ─────────────────────────────────────────────
    BT817 ディスプレイタイミング（800×480 WVGA）
 ───────────────────────────────────────────── */
-static const EVE_HalParameters_t s_hal_params = {
-    /* SPI */
-    .SpiCsPin   = PIN_CS,
-    .SpiPdPin   = PIN_PD,
-    .SpiClockrateKHz = (SPI_FREQ_HZ / 1000),
-};
-
-static const EVE_BootupParameters_t s_bootup = {
-    .Display = {
-        .Width      = 800,
-        .Height     = 480,
-        .HCycle     = 928,
-        .HOffset    = 88,
-        .HSync0     = 0,
-        .HSync1     = 48,
-        .VCycle     = 525,
-        .VOffset    = 32,
-        .VSync0     = 0,
-        .VSync1     = 3,
-        .PCLK       = 2,
-        .Swizzle    = 0,
-        .PCLKPol    = 1,
-        .CSpread    = 0,
-        .Dither     = 1,
-    },
-    .ExternalOsc = true,
-};
+/* HAL パラメータ（ディスプレイタイミングは CMakeLists.txt のコンパイル定義で設定） */
+static EVE_HalParameters s_hal_params;
 
 /* ─────────────────────────────────────────────
    メイン
@@ -79,13 +51,19 @@ int main(void)
 
     EVE_Hal_initialize();
 
+    /* デフォルト値を取得してから SPI 設定を上書き */
+    EVE_Hal_defaults(&s_hal_params);
+    s_hal_params.SpiCsPin       = PIN_CS;
+    s_hal_params.PowerDownPin   = PIN_PD;
+    /* SPI クロックは EVE_HalImpl_RP2040.c 内で 25MHz にハードコード済み */
+
     if (!EVE_Hal_open(phost, &s_hal_params)) {
         /* ハードウェア接続失敗 */
         printf("EVE_Hal_open failed\n");
         for (;;) tight_loop_contents();
     }
 
-    if (!EVE_Util_bootupConfig(phost, &s_bootup)) {
+    if (!EVE_Util_bootupConfig(phost)) {
         printf("EVE bootup failed\n");
         EVE_Hal_close(phost);
         EVE_Hal_release();
@@ -93,7 +71,7 @@ int main(void)
     }
 
     /* タッチ感度設定（BT817 容量タッチコントローラ） */
-    EVE_Hal_wr8(phost, REG_TOUCH_MODE, EVE_TMODE_CONTINUOUS);
+    EVE_Hal_wr8(phost, REG_TOUCH_MODE, TOUCHMODE_CONTINUOUS);
     EVE_Hal_wr16(phost, REG_TOUCH_RZTHRESH, 1200);
 
     /* アプリケーション状態初期化 */
