@@ -52,6 +52,8 @@
 #define TAG_MENU_LOG    24
 #define TAG_MENU_SETT   25  /* admin only */
 #define TAG_MENU_USERS  26  /* admin only */
+/* ログカテゴリタブ (30-36) */
+#define TAG_LOG_TAB_BASE   30  /* +0=ALL +1=LOGIN +2=OPER +3=ALARM +4=LOG +5=SETT +6=USER */
 
 /* ─────────────────────────────────────────────
    カラーパレット（0xRRGGBB）
@@ -126,6 +128,39 @@ typedef enum {
 } AlarmFilter_t;
 
 /* ─────────────────────────────────────────────
+   ログカテゴリ・フィルタ
+───────────────────────────────────────────── */
+#define LOG_CAT_LOGIN     0
+#define LOG_CAT_OPERATION 1
+#define LOG_CAT_ALARM     2
+#define LOG_CAT_LOG       3
+#define LOG_CAT_SETTINGS  4
+#define LOG_CAT_USER      5
+
+typedef enum {
+    LOG_FILTER_ALL = 0,
+    LOG_FILTER_LOGIN,
+    LOG_FILTER_OPERATION,
+    LOG_FILTER_ALARM,
+    LOG_FILTER_LOG,
+    LOG_FILTER_SETTINGS,
+    LOG_FILTER_USER,
+    LOG_FILTER_COUNT,
+} LogFilter_t;
+
+/* ─────────────────────────────────────────────
+   ログエントリ
+───────────────────────────────────────────── */
+#define LOG_MAX     32
+
+typedef struct {
+    char    time[10];   /* "HH:MM:SS\0" */
+    char    user[16];
+    char    event[48];
+    uint8_t cat;        /* LOG_CAT_xxx */
+} LogEntry_t;
+
+/* ─────────────────────────────────────────────
    アラームレコード
 ───────────────────────────────────────────── */
 #define ALARM_MAX   8
@@ -143,6 +178,7 @@ typedef struct {
     const char  *time_str;
     bool         active;        /* false = reset済み */
     bool         admin_only;    /* reset に Admin 権限要 */
+    bool         viewed;        /* DTL で一度開いた */
 } AlarmRecord_t;
 
 /* ─────────────────────────────────────────────
@@ -159,7 +195,7 @@ typedef struct {
     /* 機械状態 */
     MachineState_t  machine;
     uint32_t        set_rpm;        /* 設定回転数 (0-3000, step 100) */
-    uint8_t         feed_idx;       /* 0=25% 1=50% 2=75% 3=100% */
+    uint8_t         feed_idx;       /* フィードインデックス */
 
     /* センサ値（実機ではポーリング更新） */
     uint32_t        actual_rpm;
@@ -180,17 +216,32 @@ typedef struct {
     UserRole_t      auth_pending;
     uint32_t        auth_duration_ms;
 
+    /* 認証成功バナー（上からスライドイン） */
+    bool            auth_notif_active;
+    uint32_t        auth_notif_start;
+    const char     *auth_notif_name;
+    const char     *auth_notif_role;
+
     /* アラーム */
     AlarmRecord_t   alarms[ALARM_MAX];
     uint8_t         alarm_count;
     AlarmFilter_t   alarm_filter;
     int8_t          alarm_cursor;
+    uint8_t         alarm_scroll;
+
+    /* アラーム詳細パネル（下からスライドイン） */
+    bool            alarm_detail_open;
+    bool            alarm_detail_closing;
+    uint32_t        alarm_detail_start;
 
     /* ロック画面カーソル (0=OPR, 1=ADM) */
     int8_t          lock_cursor;
 
-    /* ログスクロール */
+    /* ログ */
+    LogEntry_t      log_entries[LOG_MAX];
+    uint8_t         log_count;
     uint8_t         log_scroll;
+    LogFilter_t     log_filter;
 
     /* Settings */
     uint8_t         settings_cursor;   /* 0-3: 選択行 */

@@ -13,11 +13,18 @@
    定数
 ═══════════════════════════════════════════════════════════ */
 
-#define HDR_H           80      /* ヘッダ高さ（50cm視認距離対応） */
-#define SETT_ROW_H      50      /* Settings 1行の高さ */
-#define LOG_ROW_H       34      /* Log 1行の高さ */
-#define USER_ROW_H      46      /* Users 1行の高さ */
-#define TITLE_OFFSET    52      /* タイトル下マージン */
+#define HDR_H               80      /* ヘッダ高さ（50cm視認距離対応） */
+#define SETT_ROW_H          50      /* Settings 1行の高さ */
+#define LOG_ROW_H           34      /* Log 1行の高さ */
+#define USER_ROW_H          46      /* Users 1行の高さ */
+#define TITLE_OFFSET        52      /* タイトル下マージン */
+#define ROW_H_AL            64      /* Alarm 2行コンパクト行高さ */
+#define ALARM_DTL_H         (SCR_H - HDR_H - 40)   /* アラーム詳細パネル高さ ~360px */
+#define ALARM_SLIDE_MS      300     /* アラーム詳細スライドms */
+#define AUTH_NOTIF_SLIDE_MS 220     /* 認証通知スライドms */
+#define AUTH_NOTIF_HOLD_MS  1000    /* 認証通知表示保持ms */
+#define LOG_TAB_W           82      /* ログカテゴリタブ幅 */
+#define LOG_TAB_GAP         4       /* ログタブ間隔 */
 
 /* ═══════════════════════════════════════════════════════════
    フィードパターンテーブル
@@ -49,29 +56,26 @@ static UserRecord_t user_data[4] = {
 #define USER_COUNT 4
 
 /* ═══════════════════════════════════════════════════════════
-   ログデータ（13エントリ）
+   ログ追加ヘルパー（最新を先頭に挿入）
 ═══════════════════════════════════════════════════════════ */
 
-static const struct {
-    const char *time;
-    const char *user;
-    const char *event;
-} log_data[] = {
-    { "10:30:00", "I.Tanaka", "Login (Operator)" },
-    { "10:28:15", "Y.Yamada", "Alarm reset: Coolant" },
-    { "10:25:00", "Y.Yamada", "RPM: 1000->1200" },
-    { "10:15:30", "Y.Yamada", "Feed rate: 50%->75%" },
-    { "10:00:00", "Y.Yamada", "Login (Admin)" },
-    { "09:55:10", "I.Tanaka", "Settings saved" },
-    { "09:45:30", "I.Tanaka", "Machine stopped" },
-    { "09:30:00", "I.Tanaka", "Alarm ack: Coolant" },
-    { "09:10:00", "I.Tanaka", "RPM: 1200->1000" },
-    { "08:55:00", "K.Suzuki", "Login (Operator)" },
-    { "08:32:00", "I.Tanaka", "Machine started" },
-    { "08:30:00", "I.Tanaka", "Login (Operator)" },
-    { "08:00:00", "Y.Yamada", "System startup" },
-};
-#define LOG_COUNT 13
+static void add_log(AppState_t *app, uint8_t cat, const char *event)
+{
+    uint8_t n = app->log_count < LOG_MAX ? app->log_count : LOG_MAX;
+    /* 末尾を捨てて先頭に挿入 */
+    if (n == LOG_MAX) n = LOG_MAX - 1;
+    memmove(&app->log_entries[1], &app->log_entries[0], n * sizeof(LogEntry_t));
+    app->log_count = (app->log_count < LOG_MAX) ? app->log_count + 1 : LOG_MAX;
+
+    snprintf(app->log_entries[0].time, sizeof(app->log_entries[0].time),
+             "%02d:%02d:%02d", app->rtc_h, app->rtc_m, app->rtc_s);
+    strncpy(app->log_entries[0].user,  app->user_name, sizeof(app->log_entries[0].user)  - 1);
+    strncpy(app->log_entries[0].event, event,          sizeof(app->log_entries[0].event) - 1);
+    app->log_entries[0].user [sizeof(app->log_entries[0].user)  - 1] = '\0';
+    app->log_entries[0].event[sizeof(app->log_entries[0].event) - 1] = '\0';
+    app->log_entries[0].cat  = cat;
+    app->log_scroll = 0;
+}
 
 /* ═══════════════════════════════════════════════════════════
    色ルールヘルパー（共通: 赤=危険/注意のみ）
@@ -305,28 +309,88 @@ void panel_demo_init(AppState_t *app)
 
     /* ログ・ユーザー */
     app->log_scroll  = 0;
+    app->log_filter  = LOG_FILTER_ALL;
     app->user_cursor = 0;
 
-    /* アラーム初期データ */
+    /* アラーム初期データ（8件） */
     app->alarms[0] = (AlarmRecord_t){
-        .level      = ALARM_LVL_WARN,
-        .title      = "Coolant Temp High",
-        .detail     = "Coolant temp exceeded 45C limit. Now 48C.",
-        .time_str   = "2026-03-31 08:15",
-        .active     = true,
-        .admin_only = true,
+        ALARM_LVL_ERROR, "Spindle Overload",
+        "Spindle current exceeded 150% limit. Emergency stop executed.",
+        "2026-04-12 08:05", true, true, false
     };
     app->alarms[1] = (AlarmRecord_t){
-        .level      = ALARM_LVL_INFO,
-        .title      = "Maintenance Due",
-        .detail     = "Spindle oil change due 2026-04-01.",
-        .time_str   = "2026-03-31 10:00",
-        .active     = true,
-        .admin_only = false,
+        ALARM_LVL_ERROR, "Tool Wear Limit",
+        "Tool T03 exceeded maximum wear threshold. Replacement required.",
+        "2026-04-12 09:30", true, false, false
     };
-    app->alarm_count  = 2;
+    app->alarms[2] = (AlarmRecord_t){
+        ALARM_LVL_WARN, "Coolant Temp High",
+        "Coolant temperature exceeded 45C limit. Currently 48C.",
+        "2026-04-12 09:45", true, true, false
+    };
+    app->alarms[3] = (AlarmRecord_t){
+        ALARM_LVL_WARN, "Coolant Level Low",
+        "Coolant reservoir below minimum level. Refill required.",
+        "2026-04-12 10:00", false, false, false
+    };
+    app->alarms[4] = (AlarmRecord_t){
+        ALARM_LVL_WARN, "Vibration Detected",
+        "Abnormal vibration on spindle axis. Check tool mounting.",
+        "2026-04-12 10:15", false, false, false
+    };
+    app->alarms[5] = (AlarmRecord_t){
+        ALARM_LVL_INFO, "Maintenance Due",
+        "Scheduled maintenance at 2000h. Current: 1987h. 13h remaining.",
+        "2026-04-11 08:00", true, false, false
+    };
+    app->alarms[6] = (AlarmRecord_t){
+        ALARM_LVL_INFO, "Backup Complete",
+        "System configuration backup completed successfully.",
+        "2026-04-11 07:00", false, false, false
+    };
+    app->alarms[7] = (AlarmRecord_t){
+        ALARM_LVL_INFO, "Filter Replacement",
+        "Air filter replacement recommended. Last changed 90 days ago.",
+        "2026-04-10 06:00", false, false, false
+    };
+    app->alarm_count  = 8;
     app->alarm_filter = ALARM_FILTER_ALL;
     app->alarm_cursor = 0;
+    app->alarm_scroll = 0;
+
+    /* 初期ログデータ（20件） */
+    static const struct {
+        const char *time; const char *user; const char *event; uint8_t cat;
+    } init_logs[] = {
+        { "10:30:00", "I.Tanaka", "Login (Operator)",          LOG_CAT_LOGIN     },
+        { "10:28:15", "Y.Yamada", "Alarm reset: Coolant",      LOG_CAT_ALARM     },
+        { "10:25:00", "Y.Yamada", "RPM set: 1200",             LOG_CAT_OPERATION },
+        { "10:15:30", "Y.Yamada", "Feed rate: 75%",            LOG_CAT_OPERATION },
+        { "10:00:00", "Y.Yamada", "Login (Admin)",             LOG_CAT_LOGIN     },
+        { "09:55:10", "I.Tanaka", "Settings saved",            LOG_CAT_SETTINGS  },
+        { "09:45:30", "I.Tanaka", "Machine stopped",           LOG_CAT_OPERATION },
+        { "09:30:00", "I.Tanaka", "Alarm ack: Coolant",        LOG_CAT_ALARM     },
+        { "09:10:00", "I.Tanaka", "RPM set: 1000",             LOG_CAT_OPERATION },
+        { "08:55:00", "K.Suzuki", "Login (Operator)",          LOG_CAT_LOGIN     },
+        { "08:32:00", "I.Tanaka", "Machine started",           LOG_CAT_OPERATION },
+        { "08:30:00", "I.Tanaka", "Login (Operator)",          LOG_CAT_LOGIN     },
+        { "08:20:00", "Y.Yamada", "User K.Suzuki activated",   LOG_CAT_USER      },
+        { "08:10:00", "Y.Yamada", "Max RPM changed: 3000",     LOG_CAT_SETTINGS  },
+        { "08:05:00", "Y.Yamada", "Alarm: Spindle Overload",   LOG_CAT_ALARM     },
+        { "08:03:00", "Y.Yamada", "Login (Admin)",             LOG_CAT_LOGIN     },
+        { "08:00:00", "System",   "System startup",            LOG_CAT_LOG       },
+        { "07:55:00", "Y.Yamada", "Backup completed",          LOG_CAT_LOG       },
+        { "07:30:00", "I.Tanaka", "Feed rate: 50%",            LOG_CAT_OPERATION },
+        { "07:00:00", "I.Tanaka", "Login (Operator)",          LOG_CAT_LOGIN     },
+    };
+    app->log_count = (uint8_t)(sizeof(init_logs) / sizeof(init_logs[0]));
+    if (app->log_count > LOG_MAX) app->log_count = LOG_MAX;
+    for (int i = 0; i < (int)app->log_count; i++) {
+        strncpy(app->log_entries[i].time,  init_logs[i].time,  sizeof(app->log_entries[i].time)  - 1);
+        strncpy(app->log_entries[i].user,  init_logs[i].user,  sizeof(app->log_entries[i].user)  - 1);
+        strncpy(app->log_entries[i].event, init_logs[i].event, sizeof(app->log_entries[i].event) - 1);
+        app->log_entries[i].cat = init_logs[i].cat;
+    }
 
     app->auth_duration_ms = 1500;
     app->rtc_h = 10;
@@ -357,6 +421,31 @@ void panel_demo_update(AppState_t *app, uint32_t tick_ms)
             app->screen        = SCREEN_MAIN;
             app->panel         = PANEL_HOME;
             app->menu_open     = false;
+
+            /* 認証成功通知スライドイン開始 */
+            app->auth_notif_active = true;
+            app->auth_notif_start  = tick_ms;
+            app->auth_notif_name   = app->user_name;
+            app->auth_notif_role   = app->user_role_str;
+
+            /* ログイン履歴記録 */
+            add_log(app, LOG_CAT_LOGIN,
+                    (app->role == ROLE_ADMIN) ? "Login (Admin)" : "Login (Operator)");
+        }
+    }
+
+    /* 認証通知アニメーション終了チェック */
+    if (app->auth_notif_active) {
+        uint32_t total = AUTH_NOTIF_SLIDE_MS * 2 + AUTH_NOTIF_HOLD_MS;
+        if (tick_ms - app->auth_notif_start >= total)
+            app->auth_notif_active = false;
+    }
+
+    /* アラーム詳細クローズアニメーション終了チェック */
+    if (app->alarm_detail_open && app->alarm_detail_closing) {
+        if (tick_ms - app->alarm_detail_start >= ALARM_SLIDE_MS) {
+            app->alarm_detail_open    = false;
+            app->alarm_detail_closing = false;
         }
     }
 
@@ -447,6 +536,200 @@ static void render_auth(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms
 }
 
 /* ═══════════════════════════════════════════════════════════
+   認証成功通知（上からスライドイン）
+═══════════════════════════════════════════════════════════ */
+
+static void render_auth_notif(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms)
+{
+    if (!app->auth_notif_active) return;
+
+    uint32_t elapsed  = tick_ms - app->auth_notif_start;
+    uint32_t total_ms = AUTH_NOTIF_SLIDE_MS * 2 + AUTH_NOTIF_HOLD_MS;
+    if (elapsed >= total_ms) return;
+
+    int16_t panelH = SCR_H / 4;   /* 120px */
+    int32_t offsetY;               /* 0=全表示, -panelH=完全隠れ */
+
+    if (elapsed < AUTH_NOTIF_SLIDE_MS) {
+        /* スライドイン（ease-out cubic） */
+        uint32_t t = elapsed * 1000 / AUTH_NOTIF_SLIDE_MS;   /* 0-1000 */
+        uint32_t inv = 1000 - t;
+        uint32_t ease = inv * inv / 1000 * inv / 1000;        /* (1-t)^3 */
+        offsetY = -(int32_t)(panelH * ease / 1000);
+    } else if (elapsed < AUTH_NOTIF_SLIDE_MS + AUTH_NOTIF_HOLD_MS) {
+        offsetY = 0;
+    } else {
+        /* スライドアウト（ease-in cubic） */
+        uint32_t t = (elapsed - AUTH_NOTIF_SLIDE_MS - AUTH_NOTIF_HOLD_MS)
+                     * 1000 / AUTH_NOTIF_SLIDE_MS;
+        uint32_t ease = t * t / 1000 * t / 1000;             /* t^3 */
+        offsetY = -(int32_t)(panelH * ease / 1000);
+    }
+
+    int16_t clipH = (int16_t)(panelH + offsetY);
+    if (clipH <= 0) return;
+
+    /* Scissor でクリップ */
+    EVE_CoDl_scissorXY(phost, (uint16_t)CONT_X, 0);
+    EVE_CoDl_scissorSize(phost, (uint16_t)CONT_W, (uint16_t)clipH);
+
+    int16_t py = (int16_t)offsetY;  /* パネル上端（負=はみ出し中） */
+
+    /* 背景（ダークグリーン） */
+    draw_rect(phost, CONT_X, py, CONT_W, panelH, 0x064E3BUL);
+    draw_hline(phost, CONT_X, py + panelH - 2, CONT_W, COL_GREEN, 2);
+
+    /* チェックマークサークル */
+    int16_t cx = CONT_X + 60;
+    int16_t cy = py + panelH / 2;
+    SET_COLOR(phost, COL_GREEN);
+    EVE_CoDl_lineWidth(phost, 3 * 16);
+    EVE_CoDl_begin(phost, EVE_LINE_STRIP);
+    for (int j = 0; j <= 32; j++) {
+        float angle = (float)j * 6.2832f / 32.0f;
+        int16_t px2 = (int16_t)(cx + 20 * __builtin_cosf(angle));
+        int16_t py2 = (int16_t)(cy + 20 * __builtin_sinf(angle));
+        EVE_CoDl_vertex2f(phost, px2 * 16, py2 * 16);
+    }
+    EVE_CoDl_end(phost);
+    EVE_CoDl_begin(phost, EVE_LINES);
+    EVE_CoDl_vertex2f(phost, (cx - 10) * 16,  cy        * 16);
+    EVE_CoDl_vertex2f(phost, (cx - 2)  * 16, (cy + 8)   * 16);
+    EVE_CoDl_vertex2f(phost, (cx - 2)  * 16, (cy + 8)   * 16);
+    EVE_CoDl_vertex2f(phost, (cx + 12) * 16, (cy - 8)   * 16);
+    EVE_CoDl_end(phost);
+
+    /* テキスト */
+    SET_COLOR(phost, COL_WHITE);
+    EVE_CoCmd_text(phost, CONT_X + 100, cy - 14, FONT_MD, EVE_OPT_CENTERY,
+                   app->auth_notif_name);
+    SET_COLOR(phost, COL_GREEN);
+    EVE_CoCmd_text(phost, CONT_X + 100, cy + 14, FONT_SM, EVE_OPT_CENTERY,
+                   app->auth_notif_role);
+    SET_COLOR(phost, COL_TXT2);
+    EVE_CoCmd_text(phost, CONT_X + CONT_W / 2, cy, FONT_MD,
+                   EVE_OPT_CENTER, "Authentication Successful");
+
+    /* Scissor リセット */
+    EVE_CoDl_scissorXY(phost, 0, 0);
+    EVE_CoDl_scissorSize(phost, 2048, 2048);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   アラーム詳細パネル（下からスライドイン）
+═══════════════════════════════════════════════════════════ */
+
+/* テキスト折り返しヘルパー（文字数ベース） */
+static void draw_text_wrap(EVE_HalContext *phost,
+                            int16_t x, int16_t y1, int16_t y2,
+                            const char *str, uint32_t color, uint8_t font,
+                            int max_chars)
+{
+    size_t len = strlen(str);
+    if ((int)len <= max_chars) {
+        SET_COLOR(phost, color);
+        EVE_CoCmd_text(phost, x, y1, font, 0, str);
+        return;
+    }
+    /* スペースで折り返し位置を探す */
+    int split = max_chars;
+    while (split > 0 && str[split] != ' ') split--;
+    if (split == 0) split = max_chars;
+
+    char buf1[64], buf2[64];
+    int l1 = split < 63 ? split : 63;
+    strncpy(buf1, str, (size_t)l1); buf1[l1] = '\0';
+    const char *rest = str + split;
+    while (*rest == ' ') rest++;
+    strncpy(buf2, rest, 63); buf2[63] = '\0';
+
+    SET_COLOR(phost, color);
+    EVE_CoCmd_text(phost, x, y1, font, 0, buf1);
+    if (buf2[0]) EVE_CoCmd_text(phost, x, y2, font, 0, buf2);
+}
+
+static void render_alarm_detail(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms)
+{
+    if (!app->alarm_detail_open) return;
+
+    uint32_t elapsed = tick_ms - app->alarm_detail_start;
+    int16_t  panelH  = ALARM_DTL_H;
+    int16_t  targetY = SCR_H - panelH;   /* 完全展開時のパネル上端 */
+    int32_t  offsetY;                     /* 0=開, panelH=閉 */
+
+    if (app->alarm_detail_closing) {
+        if (elapsed >= ALARM_SLIDE_MS) { offsetY = panelH; }
+        else {
+            offsetY = (int32_t)(panelH * elapsed / ALARM_SLIDE_MS);
+        }
+    } else {
+        if (elapsed >= ALARM_SLIDE_MS) { offsetY = 0; }
+        else {
+            uint32_t t   = elapsed * 1000 / ALARM_SLIDE_MS;
+            uint32_t inv = 1000 - t;
+            uint32_t ease = inv * inv / 1000 * inv / 1000;   /* (1-t)^3 */
+            offsetY = (int32_t)(panelH * ease / 1000);
+        }
+    }
+
+    int16_t panelY = targetY + (int16_t)offsetY;
+    int16_t clipH  = SCR_H - panelY;
+    if (clipH <= 0) return;
+
+    /* Scissor クリップ */
+    EVE_CoDl_scissorXY(phost, (uint16_t)CONT_X, (uint16_t)panelY);
+    EVE_CoDl_scissorSize(phost, (uint16_t)CONT_W, (uint16_t)clipH);
+
+    /* パネル背景 */
+    draw_rect(phost, CONT_X, panelY, CONT_W, panelH, COL_CARD);
+    draw_hline(phost, CONT_X, panelY, CONT_W, COL_BORDER, 1);
+
+    /* 選択アラーム */
+    AlarmRecord_t *al = &app->alarms[app->alarm_cursor];
+    uint32_t lc = (al->level == ALARM_LVL_ERROR) ? COL_RED :
+                  (al->level == ALARM_LVL_WARN)  ? COL_YELLOW : COL_ACCENT;
+
+    /* 左カラーバー */
+    draw_rect(phost, CONT_X, panelY, 6, panelH, lc);
+
+    /* タイトル */
+    int16_t ty = panelY + 20;
+    SET_COLOR(phost, COL_TXT);
+    EVE_CoCmd_text(phost, CONT_X + 20, ty, FONT_LG, 0, al->title);
+
+    /* 詳細テキスト（折り返し） */
+    ty += 38;
+    draw_text_wrap(phost, CONT_X + 20, ty, ty + 22,
+                   al->detail, COL_TXT2, FONT_SM, 60);
+
+    /* メタグリッド */
+    ty += 54;
+    static const char *meta_keys[4]  = { "Time", "Level", "Reset Auth", "Status" };
+    const char *level_str  = (al->level == ALARM_LVL_ERROR) ? "ERROR" :
+                             (al->level == ALARM_LVL_WARN)  ? "WARN"  : "INFO";
+    const char *status_str = al->active    ? "ACTIVE"   : "RESET";
+    const char *auth_str   = al->admin_only? "Admin"    : "Operator";
+    const char *meta_vals[4] = { al->time_str, level_str, auth_str, status_str };
+    uint32_t    meta_cols[4] = { COL_TXT, lc,
+                                 al->admin_only ? COL_YELLOW : COL_TXT,
+                                 al->active ? lc : COL_TXT3 };
+
+    int16_t gw = CONT_W / 4;
+    for (int i = 0; i < 4; i++) {
+        int16_t gx = CONT_X + i * gw;
+        draw_rect(phost, gx + 2, ty, gw - 6, 56, COL_CARD2);
+        SET_COLOR(phost, COL_TXT3);
+        EVE_CoCmd_text(phost, gx + 10, ty + 12, FONT_SM, 0, meta_keys[i]);
+        SET_COLOR(phost, meta_cols[i]);
+        EVE_CoCmd_text(phost, gx + 10, ty + 36, FONT_SM, 0, meta_vals[i]);
+    }
+
+    /* Scissor リセット */
+    EVE_CoDl_scissorXY(phost, 0, 0);
+    EVE_CoDl_scissorSize(phost, 2048, 2048);
+}
+
+/* ═══════════════════════════════════════════════════════════
    ヘッダバー
 ═══════════════════════════════════════════════════════════ */
 
@@ -464,15 +747,29 @@ static void render_header(EVE_HalContext *phost, AppState_t *app)
 
     /* 機械名 */
     SET_COLOR(phost, COL_TXT);
-    EVE_CoCmd_text(phost, CONT_X + 86, HDR_H / 2, FONT_MD, EVE_OPT_CENTERY, "CNC-7800");
+    EVE_CoCmd_text(phost, CONT_X + 86, HDR_H / 2, FONT_MD, EVE_OPT_CENTERY, "CNC-8100S");
 
-    /* ステータスチップ（x=310: CNC-7800 テキストと重ならない位置） */
+    /* ステータスチップ */
     const char *st_label = (app->machine == MACHINE_RUNNING) ? "RUNNING" : "STOPPED";
     uint32_t    st_col   = (app->machine == MACHINE_RUNNING) ? COL_GREEN : COL_RED;
-    int16_t     st_x     = CONT_X + 310;
+    int16_t     st_x     = CONT_X + 330;
     draw_rect(phost, st_x, 14, 80, 22, (st_col >> 2) & 0x3F3F3FUL);
     SET_COLOR(phost, st_col);
     EVE_CoCmd_text(phost, st_x + 40, 25, FONT_SM, EVE_OPT_CENTER, st_label);
+
+    /* アクティブアラームバッジ */
+    {
+        uint8_t act = 0;
+        for (int i = 0; i < (int)app->alarm_count; i++)
+            if (app->alarms[i].active) act++;
+        if (act > 0) {
+            int16_t bx = st_x + 90;
+            draw_rect(phost, bx, 14, 30, 22, COL_RED);
+            char abuf[8]; snprintf(abuf, sizeof(abuf), "%d", act);
+            SET_COLOR(phost, COL_WHITE);
+            EVE_CoCmd_text(phost, bx + 15, 25, FONT_SM, EVE_OPT_CENTER, abuf);
+        }
+    }
 
     /* 右端：ユーザー名（3行縦並び） */
     char time_str[10];
@@ -776,7 +1073,7 @@ static void render_alarm(EVE_HalContext *phost, AppState_t *app)
     y += TITLE_OFFSET;
 
     /* フィルタタブ */
-    static const char *ftabs[4]   = { "ALL", "ERR", "WARN", "INFO" };
+    static const char *ftabs[4] = { "ALL", "ERR", "WARN", "INFO" };
     for (int i = 0; i < 4; i++) {
         bool sel = (app->alarm_filter == (AlarmFilter_t)i);
         draw_rect(phost, cx + 8 + i * 74, y, 68, 30,
@@ -787,59 +1084,86 @@ static void render_alarm(EVE_HalContext *phost, AppState_t *app)
     }
     y += 38;
 
-    /* アラームリスト */
-    uint8_t shown = 0;
+    /* フィルタ件数カウント */
+    int filtered_count = 0;
     for (int i = 0; i < (int)app->alarm_count; i++) {
         AlarmRecord_t *al = &app->alarms[i];
         if (app->alarm_filter == ALARM_FILTER_ERROR && al->level != ALARM_LVL_ERROR) continue;
         if (app->alarm_filter == ALARM_FILTER_WARN  && al->level != ALARM_LVL_WARN)  continue;
         if (app->alarm_filter == ALARM_FILTER_INFO  && al->level != ALARM_LVL_INFO)  continue;
+        filtered_count++;
+    }
+
+    /* 表示可能行数 */
+    int visible = (SCR_H - y - 8) / ROW_H_AL;
+    int max_scroll = filtered_count - visible;
+    if (max_scroll < 0) max_scroll = 0;
+    if (app->alarm_scroll > (uint8_t)max_scroll) app->alarm_scroll = (uint8_t)max_scroll;
+
+    int shown = 0;
+    int skip  = app->alarm_scroll;
+
+    for (int i = 0; i < (int)app->alarm_count && shown < visible; i++) {
+        AlarmRecord_t *al = &app->alarms[i];
+        if (app->alarm_filter == ALARM_FILTER_ERROR && al->level != ALARM_LVL_ERROR) continue;
+        if (app->alarm_filter == ALARM_FILTER_WARN  && al->level != ALARM_LVL_WARN)  continue;
+        if (app->alarm_filter == ALARM_FILTER_INFO  && al->level != ALARM_LVL_INFO)  continue;
+        if (skip > 0) { skip--; continue; }
 
         uint32_t lc  = (al->level == ALARM_LVL_ERROR) ? COL_RED :
                        (al->level == ALARM_LVL_WARN)  ? COL_YELLOW : COL_ACCENT;
-        int16_t  ay  = y + shown * 102;
+        int16_t  ay  = y + shown * ROW_H_AL;
         bool     sel = (app->alarm_cursor == i);
 
-        /* 選択行: 濃い青背景＋ACCENTカラー枠 */
-        draw_rect(phost, cx + 8, ay, CONT_W - 16, 96,
+        /* 選択行背景 */
+        draw_rect(phost, cx + 8, ay, CONT_W - 16, ROW_H_AL - 2,
                   sel ? 0x0E2A45UL : COL_CARD);
         if (sel) {
             SET_COLOR(phost, COL_ACCENT);
             EVE_CoDl_lineWidth(phost, 2 * 16);
             EVE_CoDl_begin(phost, EVE_LINE_STRIP);
-            EVE_CoDl_vertex2f(phost, (cx + 8)         * 16, ay * 16);
-            EVE_CoDl_vertex2f(phost, (cx + CONT_W - 8)* 16, ay * 16);
-            EVE_CoDl_vertex2f(phost, (cx + CONT_W - 8)* 16, (ay + 96) * 16);
-            EVE_CoDl_vertex2f(phost, (cx + 8)         * 16, (ay + 96) * 16);
-            EVE_CoDl_vertex2f(phost, (cx + 8)         * 16, ay * 16);
+            EVE_CoDl_vertex2f(phost, (cx + 8)          * 16,  ay                    * 16);
+            EVE_CoDl_vertex2f(phost, (cx + CONT_W - 8) * 16,  ay                    * 16);
+            EVE_CoDl_vertex2f(phost, (cx + CONT_W - 8) * 16, (ay + ROW_H_AL - 2)   * 16);
+            EVE_CoDl_vertex2f(phost, (cx + 8)          * 16, (ay + ROW_H_AL - 2)   * 16);
+            EVE_CoDl_vertex2f(phost, (cx + 8)          * 16,  ay                    * 16);
             EVE_CoDl_end(phost);
         }
-        /* 左カラーバー（選択=フル色、非選択=半輝度） */
-        draw_rect(phost, cx + 8, ay, 6, 96, sel ? lc : (lc >> 1) & 0x7F7F7FUL);
+        /* 左カラーバー */
+        draw_rect(phost, cx + 8, ay, 6, ROW_H_AL - 2, sel ? lc : (lc >> 1) & 0x7F7F7FUL);
 
+        /* 行1: タイトル + ステータス */
         SET_COLOR(phost, COL_TXT);
-        EVE_CoCmd_text(phost, cx + 20, ay + 10,  FONT_MD, 0, al->title);
-        SET_COLOR(phost, COL_TXT2);
-        EVE_CoCmd_text(phost, cx + 20, ay + 38,  FONT_SM, 0, al->detail);
-        SET_COLOR(phost, COL_TXT3);
-        EVE_CoCmd_text(phost, cx + 20, ay + 68,  FONT_SM, 0, al->time_str);
+        EVE_CoCmd_text(phost, cx + 20, ay + 16, FONT_MD, EVE_OPT_CENTERY, al->title);
         const char *slabel = al->active ? "ACTIVE" : "RESET";
         SET_COLOR(phost, al->active ? lc : COL_TXT3);
-        EVE_CoCmd_text(phost, RIGHT_X - 90, ay + 30, FONT_SM, 0, slabel);
+        EVE_CoCmd_text(phost, RIGHT_X - 90, ay + 16, FONT_SM, EVE_OPT_CENTERY, slabel);
+
+        /* 行2: viewed ドット + 時刻 */
+        uint32_t dot_col = al->viewed ? COL_TXT3 : lc;
+        SET_COLOR(phost, dot_col);
+        EVE_CoDl_pointSize(phost, 4 * 16);
+        EVE_CoDl_begin(phost, EVE_POINTS);
+        EVE_CoDl_vertex2f(phost, (cx + 23) * 16, (ay + 46) * 16);
+        EVE_CoDl_end(phost);
+
+        SET_COLOR(phost, COL_TXT2);
+        EVE_CoCmd_text(phost, cx + 34, ay + 46, FONT_SM, EVE_OPT_CENTERY, al->time_str);
 
         shown++;
     }
 
-    if (shown == 0) {
+    if (filtered_count == 0) {
         SET_COLOR(phost, COL_TXT3);
         EVE_CoCmd_text(phost, CONT_X + CONT_W / 2, y + 50,
                        FONT_MD, EVE_OPT_CENTERX, "No alarms");
     }
 
     bool can_reset = (app->role == ROLE_ADMIN);
+    bool feed_en   = !app->alarm_detail_open;
     RB(TAG_R1, BTN_Y0, "DTL",  COL_CARD, true);
     RB(TAG_R2, BTN_Y1, "RST",  can_reset ? COL_YELLOW : COL_SURF, can_reset);
-    RB(TAG_R3, BTN_Y2, "FEED", COL_CARD, true);
+    RB(TAG_R3, BTN_Y2, "FEED", feed_en ? COL_CARD : COL_SURF, feed_en);
     RB(TAG_R4, BTN_Y3, "",     COL_SURF, false);
 }
 
@@ -856,7 +1180,26 @@ static void render_log(EVE_HalContext *phost, AppState_t *app)
     EVE_CoCmd_text(phost, cx + 8, y, FONT_LG, 0, "Operation Log");
     y += TITLE_OFFSET;
 
-    /* ヘッダ行 */
+    /* 7カテゴリタブ (TAG_LOG_TAB_BASE = 30) */
+    static const char *cat_labels[7] = {
+        "ALL", "LOGIN", "OPER", "ALARM", "LOG", "SETT", "USER"
+    };
+    for (int i = 0; i < 7; i++) {
+        bool is_adm = (i >= 5);   /* SETT/USER は Admin のみ */
+        bool en     = !is_adm || (app->role == ROLE_ADMIN);
+        bool sel    = ((int)app->log_filter == i);
+        uint32_t bg = !en ? COL_SURF : sel ? COL_ACCENT : COL_CARD2;
+        uint32_t fg = !en ? COL_TXT3 : sel ? COL_WHITE  : COL_TXT2;
+        int16_t tx  = cx + 8 + i * (LOG_TAB_W + LOG_TAB_GAP);
+        EVE_CoDl_tag(phost, en ? (uint8_t)(TAG_LOG_TAB_BASE + i) : TAG_NONE);
+        draw_rect(phost, tx, y, LOG_TAB_W, 30, bg);
+        SET_COLOR(phost, fg);
+        EVE_CoCmd_text(phost, tx + LOG_TAB_W / 2, y + 15, FONT_SM, EVE_OPT_CENTER, cat_labels[i]);
+        EVE_CoDl_tag(phost, TAG_NONE);
+    }
+    y += 38;
+
+    /* テーブルヘッダ */
     draw_rect(phost, cx + 8, y, CONT_W - 16, 34, COL_SURF);
     SET_COLOR(phost, COL_TXT3);
     EVE_CoCmd_text(phost, cx + 16,  y + 8, FONT_SM, 0, "TIME");
@@ -864,33 +1207,66 @@ static void render_log(EVE_HalContext *phost, AppState_t *app)
     EVE_CoCmd_text(phost, cx + 260, y + 8, FONT_SM, 0, "EVENT");
     y += 38;
 
-    /* スクロール範囲計算 */
-    int16_t visible = (int16_t)((SCR_H - 8 - y) / LOG_ROW_H);
-    int16_t start   = (int16_t)app->log_scroll;
-    int16_t end     = start + visible;
-    if (end > LOG_COUNT) end = LOG_COUNT;
+    /* フィルタ件数 */
+    int filtered_count = 0;
+    for (int i = 0; i < (int)app->log_count; i++) {
+        LogEntry_t *le = &app->log_entries[i];
+        if (app->log_filter != LOG_FILTER_ALL &&
+            (int)le->cat != (int)app->log_filter - 1) continue;
+        filtered_count++;
+    }
 
-    /* スクロール位置インジケータ */
+    int visible    = (SCR_H - 8 - y) / LOG_ROW_H;
+    int max_scroll = filtered_count - visible;
+    if (max_scroll < 0) max_scroll = 0;
+    if (app->log_scroll > (uint8_t)max_scroll) app->log_scroll = (uint8_t)max_scroll;
+
+    /* スクロールインジケータ */
     {
+        int end = app->log_scroll + visible;
+        if (end > filtered_count) end = filtered_count;
         char ibuf[16];
-        snprintf(ibuf, sizeof(ibuf), "%d-%d/%d", start + 1, end, LOG_COUNT);
+        snprintf(ibuf, sizeof(ibuf), "%d-%d/%d",
+                 filtered_count ? app->log_scroll + 1 : 0, end, filtered_count);
         SET_COLOR(phost, COL_TXT3);
         EVE_CoCmd_text(phost, RIGHT_X - 8, HDR_H + 12 + 14, FONT_SM, EVE_OPT_RIGHTX, ibuf);
     }
 
-    for (int i = start; i < end; i++) {
-        int16_t ly = y + (i - start) * LOG_ROW_H;
-        if (i % 2 == 0) draw_rect(phost, cx + 8, ly, CONT_W - 16, LOG_ROW_H - 1, COL_CARD);
+    int shown = 0, skip = app->log_scroll;
+    for (int i = 0; i < (int)app->log_count && shown < visible; i++) {
+        LogEntry_t *le = &app->log_entries[i];
+        if (app->log_filter != LOG_FILTER_ALL &&
+            (int)le->cat != (int)app->log_filter - 1) continue;
+        if (skip > 0) { skip--; continue; }
+
+        int16_t ly = y + shown * LOG_ROW_H;
+        draw_rect(phost, cx + 8, ly, CONT_W - 16, LOG_ROW_H - 1,
+                  shown % 2 == 0 ? COL_CARD : COL_BG);
+
+        /* カテゴリ別カラーバー */
+        uint32_t cat_col;
+        switch (le->cat) {
+        case LOG_CAT_LOGIN:     cat_col = COL_ACCENT; break;
+        case LOG_CAT_OPERATION: cat_col = COL_GREEN;  break;
+        case LOG_CAT_ALARM:     cat_col = COL_RED;    break;
+        case LOG_CAT_LOG:       cat_col = COL_TEAL;   break;
+        case LOG_CAT_SETTINGS:  cat_col = COL_YELLOW; break;
+        case LOG_CAT_USER:      cat_col = COL_ORANGE; break;
+        default:                cat_col = COL_TXT2;   break;
+        }
+        draw_rect(phost, cx + 8, ly, 4, LOG_ROW_H - 1, cat_col);
+
         SET_COLOR(phost, COL_TXT3);
-        EVE_CoCmd_text(phost, cx + 16,  ly + 8, FONT_SM, 0, log_data[i].time);
+        EVE_CoCmd_text(phost, cx + 16,  ly + 8, FONT_SM, 0, le->time);
         SET_COLOR(phost, COL_TXT2);
-        EVE_CoCmd_text(phost, cx + 130, ly + 8, FONT_SM, 0, log_data[i].user);
+        EVE_CoCmd_text(phost, cx + 130, ly + 8, FONT_SM, 0, le->user);
         SET_COLOR(phost, COL_TXT);
-        EVE_CoCmd_text(phost, cx + 260, ly + 8, FONT_SM, 0, log_data[i].event);
+        EVE_CoCmd_text(phost, cx + 260, ly + 8, FONT_SM, 0, le->event);
+        shown++;
     }
 
-    bool can_up = (start > 0);
-    bool can_dn = (end < LOG_COUNT);
+    bool can_up = (app->log_scroll > 0);
+    bool can_dn = (app->log_scroll < (uint8_t)max_scroll);
     RB(TAG_R1, BTN_Y0, "UP", can_up ? COL_CARD : COL_SURF, can_up);
     RB(TAG_R2, BTN_Y1, "DN", can_dn ? COL_CARD : COL_SURF, can_dn);
     RB(TAG_R3, BTN_Y2, "", COL_SURF, false);
@@ -964,7 +1340,7 @@ static void render_settings(EVE_HalContext *phost, AppState_t *app)
     EVE_CoCmd_text(phost, rx + 8, y + 8, FONT_MD, 0, "System");
 
     static const char *sys_keys[4] = { "Panel ID", "FW Version", "Display", "Network" };
-    static const char *sys_vals[4] = { "CNC-7800", "v2.1.0", "800x480", "192.168.1.10" };
+    static const char *sys_vals[4] = { "CNC-8100S", "v2.1.0", "800x480", "192.168.1.10" };
     for (int i = 0; i < 4; i++) {
         int16_t ry = y + 34 + i * SETT_ROW_H;
         draw_hline(phost, rx + 8, ry, hw - 24, COL_BORDER, 1);
@@ -1195,7 +1571,16 @@ void panel_demo_render(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms)
         default: break;
         }
 
+        /* アラーム詳細スライドパネル */
+        if (app->panel == PANEL_ALARM && app->alarm_detail_open)
+            render_alarm_detail(phost, app, tick_ms);
+
         if (app->menu_open) render_menu_overlay(phost, app);
+
+        /* 認証成功通知（最前面） */
+        if (app->auth_notif_active)
+            render_auth_notif(phost, app, tick_ms);
+
         render_toast(phost, app);
     }
 
@@ -1310,6 +1695,7 @@ void panel_demo_touch(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms)
         case TAG_R2: app->panel = PANEL_ALARM;     break;
         case TAG_R3: app->panel = PANEL_LOG;       break;
         case TAG_R4:
+            add_log(app, LOG_CAT_LOGIN, "Logout");
             app->screen        = SCREEN_LOCK;
             app->role          = ROLE_NONE;
             app->user_name     = "";
@@ -1328,67 +1714,141 @@ void panel_demo_touch(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms)
         case TAG_R1:
             app->machine = (app->machine == MACHINE_RUNNING)
                            ? MACHINE_STOPPED : MACHINE_RUNNING;
-            show_toast(app,
-                       (app->machine == MACHINE_RUNNING) ? "Machine started" : "Machine stopped",
-                       tick_ms);
+            if (app->machine == MACHINE_RUNNING) {
+                add_log(app, LOG_CAT_OPERATION, "Machine started");
+                show_toast(app, "Machine started", tick_ms);
+            } else {
+                add_log(app, LOG_CAT_OPERATION, "Machine stopped");
+                show_toast(app, "Machine stopped", tick_ms);
+            }
             break;
         case TAG_R2: case TAG_L2: /* RPM+ */
             if (app->set_rpm < rpm_max) {
                 app->set_rpm = (app->set_rpm + 100 > rpm_max) ? rpm_max : app->set_rpm + 100;
                 app->actual_rpm = app->set_rpm;
+                { char buf[32]; snprintf(buf, sizeof(buf), "RPM set: %lu",
+                  (unsigned long)app->set_rpm); add_log(app, LOG_CAT_OPERATION, buf); }
             }
             break;
         case TAG_R3: case TAG_L4: /* RPM- */
             if (app->set_rpm > rpm_min) {
                 app->set_rpm = (app->set_rpm < rpm_min + 100) ? rpm_min : app->set_rpm - 100;
                 app->actual_rpm = app->set_rpm;
+                { char buf[32]; snprintf(buf, sizeof(buf), "RPM set: %lu",
+                  (unsigned long)app->set_rpm); add_log(app, LOG_CAT_OPERATION, buf); }
             }
             break;
         case TAG_R4: /* FEED 切替 */
             app->feed_idx = (app->feed_idx + 1) % pat_cnt;
+            {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "Feed rate: %d%%",
+                         feed_patterns[app->settings_feed_pattern][app->feed_idx]);
+                add_log(app, LOG_CAT_OPERATION, buf);
+            }
             break;
         }
         break;
     }
 
     /* ─ アラーム ─ */
-    case PANEL_ALARM:
+    case PANEL_ALARM: {
+        /* DTL ボタン: 開閉トグル */
+        if (tag == TAG_R1) {
+            if (app->alarm_detail_open && !app->alarm_detail_closing) {
+                app->alarm_detail_closing = true;
+                app->alarm_detail_start   = tick_ms;
+            } else if (!app->alarm_detail_open) {
+                if (app->alarm_cursor < (int8_t)app->alarm_count)
+                    app->alarms[app->alarm_cursor].viewed = true;
+                app->alarm_detail_open    = true;
+                app->alarm_detail_closing = false;
+                app->alarm_detail_start   = tick_ms;
+                add_log(app, LOG_CAT_ALARM, "Alarm detail viewed");
+            }
+            break;
+        }
+        /* 詳細オープン中は他操作を無視 */
+        if (app->alarm_detail_open) break;
+
         switch (tag) {
-        case TAG_L2:
-            app->alarm_cursor--;
-            if (app->alarm_cursor < 0) app->alarm_cursor = app->alarm_count - 1;
+        case TAG_L2: {  /* UP: クランプ（フィルタ考慮） */
+            for (int i = app->alarm_cursor - 1; i >= 0; i--) {
+                AlarmRecord_t *al = &app->alarms[i];
+                if (app->alarm_filter == ALARM_FILTER_ERROR && al->level != ALARM_LVL_ERROR) continue;
+                if (app->alarm_filter == ALARM_FILTER_WARN  && al->level != ALARM_LVL_WARN)  continue;
+                if (app->alarm_filter == ALARM_FILTER_INFO  && al->level != ALARM_LVL_INFO)  continue;
+                app->alarm_cursor = (int8_t)i; break;
+            }
             break;
-        case TAG_L4:
-            app->alarm_cursor++;
-            if (app->alarm_cursor >= (int8_t)app->alarm_count) app->alarm_cursor = 0;
+        }
+        case TAG_L4: {  /* DOWN: クランプ */
+            for (int i = app->alarm_cursor + 1; i < (int)app->alarm_count; i++) {
+                AlarmRecord_t *al = &app->alarms[i];
+                if (app->alarm_filter == ALARM_FILTER_ERROR && al->level != ALARM_LVL_ERROR) continue;
+                if (app->alarm_filter == ALARM_FILTER_WARN  && al->level != ALARM_LVL_WARN)  continue;
+                if (app->alarm_filter == ALARM_FILTER_INFO  && al->level != ALARM_LVL_INFO)  continue;
+                app->alarm_cursor = (int8_t)i; break;
+            }
             break;
-        case TAG_R1:
-            show_toast(app, "Alarm detail (not implemented)", tick_ms);
-            break;
-        case TAG_R2:
-            if (app->role == ROLE_ADMIN &&
-                app->alarm_cursor < (int8_t)app->alarm_count) {
+        }
+        case TAG_R2:  /* RST */
+            if (app->role == ROLE_ADMIN && app->alarm_cursor < (int8_t)app->alarm_count) {
                 app->alarms[app->alarm_cursor].active = false;
+                add_log(app, LOG_CAT_ALARM, "Alarm reset");
                 show_toast(app, "Alarm reset", tick_ms);
             }
             break;
-        case TAG_R3: /* FEED: フィルタ切替 */
+        case TAG_R3: { /* FEED: フィルタ切替 + カーソル補正 */
             app->alarm_filter = (AlarmFilter_t)((app->alarm_filter + 1) % ALARM_FILTER_COUNT);
-            app->alarm_cursor = 0;
+            /* 現在のカーソルが新フィルタに含まれるか確認 */
+            bool cur_valid  = false;
+            int  first_match = -1;
+            for (int i = 0; i < (int)app->alarm_count; i++) {
+                AlarmRecord_t *al = &app->alarms[i];
+                bool pass = true;
+                if (app->alarm_filter == ALARM_FILTER_ERROR && al->level != ALARM_LVL_ERROR) pass = false;
+                if (app->alarm_filter == ALARM_FILTER_WARN  && al->level != ALARM_LVL_WARN)  pass = false;
+                if (app->alarm_filter == ALARM_FILTER_INFO  && al->level != ALARM_LVL_INFO)  pass = false;
+                if (pass) {
+                    if (first_match < 0) first_match = i;
+                    if (i == (int)app->alarm_cursor) { cur_valid = true; break; }
+                }
+            }
+            if (!cur_valid && first_match >= 0) app->alarm_cursor = (int8_t)first_match;
+            app->alarm_scroll = 0;
             break;
         }
+        }
         break;
+    }
 
     /* ─ ログ ─ */
     case PANEL_LOG: {
-        int16_t y0      = HDR_H + 12 + TITLE_OFFSET + 38;
+        /* カテゴリタブ（タグ 30-36） */
+        if (tag >= TAG_LOG_TAB_BASE && tag < TAG_LOG_TAB_BASE + 7) {
+            int ti = tag - TAG_LOG_TAB_BASE;
+            bool is_adm = (ti >= 5);
+            if (!is_adm || app->role == ROLE_ADMIN) {
+                app->log_filter = (LogFilter_t)ti;
+                app->log_scroll = 0;
+            }
+            break;
+        }
+        /* フィルタ適用後の件数を計算 */
+        int fcount = 0;
+        for (int i = 0; i < (int)app->log_count; i++) {
+            if (app->log_filter == LOG_FILTER_ALL ||
+                (int)app->log_entries[i].cat == (int)app->log_filter - 1) fcount++;
+        }
+        int16_t y0      = HDR_H + 12 + TITLE_OFFSET + 38 + 38; /* タブ行+ヘッダ行含む */
         int16_t visible = (int16_t)((SCR_H - 8 - y0) / LOG_ROW_H);
         switch (tag) {
         case TAG_L2: case TAG_R1: /* UP */
             if (app->log_scroll > 0) app->log_scroll--;
             break;
         case TAG_L4: case TAG_R2: /* DN */
-            if ((int16_t)app->log_scroll + visible < LOG_COUNT) app->log_scroll++;
+            if ((int16_t)app->log_scroll + visible < fcount) app->log_scroll++;
             break;
         }
         break;
@@ -1412,6 +1872,7 @@ void panel_demo_touch(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms)
             case TAG_R1:
                 if (app->settings_changed) {
                     app->settings_changed = false;
+                    add_log(app, LOG_CAT_SETTINGS, "Settings saved");
                     show_toast(app, "Settings saved", tick_ms);
                 }
                 break;
@@ -1503,6 +1964,8 @@ void panel_demo_touch(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms)
             UserRecord_t *u = &user_data[app->user_cursor];
             if (u->role[0] != 'A' && !u->active) {
                 u->active = true;
+                char buf[32]; snprintf(buf, sizeof(buf), "User %s activated", u->name);
+                add_log(app, LOG_CAT_USER, buf);
                 show_toast(app, "User -> Active", tick_ms);
             }
             break;
@@ -1511,6 +1974,8 @@ void panel_demo_touch(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms)
             UserRecord_t *u = &user_data[app->user_cursor];
             if (u->role[0] != 'A' && u->active) {
                 u->active = false;
+                char buf[32]; snprintf(buf, sizeof(buf), "User %s deactivated", u->name);
+                add_log(app, LOG_CAT_USER, buf);
                 show_toast(app, "User -> Inactive", tick_ms);
             }
             break;
