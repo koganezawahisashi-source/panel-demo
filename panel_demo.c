@@ -162,21 +162,11 @@ static void draw_arc(EVE_HalContext *phost,
     }
     EVE_CoDl_end(phost);
 
-    /* 進捗弧 */
+    /* 進捗弧（丸キャップ） */
     if (pct == 0) return;
     int segs = (int)(ARC_SEGS * pct / 100);
     if (segs < 1) segs = 1;
     if (segs > ARC_SEGS) segs = ARC_SEGS;
-
-    /* ── 開始キャップをフラットに ──
-       開始点は常に上端 (cx, cy-r)。SCISSOR で y < cy-r を除外すると
-       上端の丸キャップが完全にクリップされる。100%時は不要。 */
-    if (segs < ARC_SEGS) {
-        int16_t sci_y = (int16_t)(cy - r);
-        if (sci_y < 0) sci_y = 0;
-        EVE_CoDl_scissorXY(phost, 0, (uint16_t)sci_y);
-        EVE_CoDl_scissorSize(phost, 2048, 2048);
-    }
 
     SET_COLOR(phost, fg_color);
     EVE_CoDl_begin(phost, EVE_LINE_STRIP);
@@ -187,28 +177,6 @@ static void draw_arc(EVE_HalContext *phost,
         EVE_CoDl_vertex2f(phost, px * 16, py * 16);
     }
     EVE_CoDl_end(phost);
-
-    /* SCISSOR リセット */
-    if (segs < ARC_SEGS) {
-        EVE_CoDl_scissorXY(phost, 0, 0);
-        EVE_CoDl_scissorSize(phost, 2048, 2048);
-    }
-
-    /* ── 終端キャップをフラットに ──
-       終端方向のベクトルを求め、厚さ分の bg_color RECT を先端に重ね描き。
-       lineWidth=radius なので半幅 = thickness px。
-       終端 (ex, ey) を中心に thickness×thickness の矩形で丸みを覆う。 */
-    if (segs < ARC_SEGS) {
-        float   end_a = start + step * segs;
-        int16_t ex    = (int16_t)(cx + r * __builtin_cosf(end_a));
-        int16_t ey    = (int16_t)(cy + r * __builtin_sinf(end_a));
-        int16_t hw    = (int16_t)thickness;   /* half-width = line radius */
-        SET_COLOR(phost, bg_color);
-        EVE_CoDl_begin(phost, EVE_RECTS);
-        EVE_CoDl_vertex2f(phost, (ex - hw) * 16, (ey - hw) * 16);
-        EVE_CoDl_vertex2f(phost, (ex + hw) * 16, (ey + hw) * 16);
-        EVE_CoDl_end(phost);
-    }
 }
 
 /* 疑似ボールドテキスト: x と x+1 に同じテキストを重ね描きして太く見せる

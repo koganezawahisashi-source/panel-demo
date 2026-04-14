@@ -273,9 +273,10 @@ function bar(x, y, w, h, pct, fg) {
   if (pct > 0) rect(x, y, Math.round(w * pct / 100), h, fg);
 }
 
-/* 円弧進捗グラフ（-PI/2=上端から時計回りに pct% 分描画） */
+/* 円弧進捗グラフ（-PI/2=上端から時計回りに pct% 分描画、丸キャップ） */
 function drawArc(cx, cy, r, bgColor, fgColor, lw, pct) {
   ctx.lineWidth = lw;
+  ctx.lineCap = 'round';
   ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.strokeStyle = bgColor; ctx.stroke();
   if (pct > 0) {
@@ -284,6 +285,7 @@ function drawArc(cx, cy, r, bgColor, fgColor, lw, pct) {
     ctx.beginPath(); ctx.arc(cx, cy, r, start, end);
     ctx.strokeStyle = fgColor; ctx.stroke();
   }
+  ctx.lineCap = 'butt';
 }
 
 /* 秒数 → "MM:SS" 文字列 */
