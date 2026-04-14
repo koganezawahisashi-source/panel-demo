@@ -31,6 +31,10 @@
 #define BTN_Y2      260     /* 130 + 90 + 40 */
 #define BTN_Y3      390     /* 260 + 90 + 40 */
 
+/* 行高さ定数 */
+#define TOOL_ROW_H  42      /* 工具寿命行高さ */
+#define MAINT_ROW_H 52      /* メンテナンス行高さ */
+
 /* ─────────────────────────────────────────────
    タッチタグ定義
 ───────────────────────────────────────────── */
@@ -45,15 +49,19 @@
 #define TAG_R2          12
 #define TAG_R3          13
 #define TAG_R4          14
-/* メニューオーバーレイ項目 */
+/* メニューオーバーレイ項目 (21-29) */
 #define TAG_MENU_HOME   21
 #define TAG_MENU_OPER   22
 #define TAG_MENU_ALRM   23
 #define TAG_MENU_LOG    24
-#define TAG_MENU_SETT   25  /* admin only */
-#define TAG_MENU_USERS  26  /* admin only */
-/* ログカテゴリタブ (30-36) */
-#define TAG_LOG_TAB_BASE   30  /* +0=ALL +1=LOGIN +2=OPER +3=ALARM +4=LOG +5=SETT +6=USER */
+#define TAG_MENU_TOOL   25
+#define TAG_MENU_COORD  26
+#define TAG_MENU_PROD   27  /* admin only */
+#define TAG_MENU_MAINT  28  /* admin only */
+#define TAG_MENU_SETT   29  /* admin only */
+#define TAG_MENU_USERS  30  /* admin only */
+/* ログカテゴリタブ (40-46) ※ 旧30-36から変更 */
+#define TAG_LOG_TAB_BASE   40  /* +0=ALL +1=LOGIN +2=OPER +3=ALARM +4=LOG +5=SETT +6=USER */
 
 /* ─────────────────────────────────────────────
    カラーパレット（0xRRGGBB）
@@ -83,11 +91,12 @@
 
 /* ─────────────────────────────────────────────
    フォント番号（EVE ROM フォント）
+   ※ 50cm視認距離対応: 重要数値=FONT_XL, データ=FONT_LG
 ───────────────────────────────────────────── */
-#define FONT_SM     26  /* 小（約12px） */
-#define FONT_MD     28  /* 中（約16px） */
-#define FONT_LG     30  /* 大（約20px） */
-#define FONT_XL     33  /* 特大（約36px） */
+#define FONT_SM     26  /* 補助ラベル（≈14px） */
+#define FONT_MD     28  /* 一般データ（≈19px） */
+#define FONT_LG     30  /* 重要情報（≈24px） */
+#define FONT_XL     33  /* 主要数値（≈40px） */
 
 /* ─────────────────────────────────────────────
    画面・パネル・権限・状態 enum
@@ -105,7 +114,11 @@ typedef enum {
     PANEL_LOG,
     PANEL_SETTINGS,
     PANEL_USERS,
-    PANEL_COUNT,
+    PANEL_TOOL_LIFE,    /* 工具寿命管理 */
+    PANEL_COORDINATE,   /* 座標・NCプログラム */
+    PANEL_MAINTENANCE,  /* メンテナンス管理 */
+    PANEL_PRODUCTION,   /* 生産実績サマリー */
+    PANEL_COUNT,        /* = 10 */
 } Panel_t;
 
 typedef enum {
@@ -126,6 +139,12 @@ typedef enum {
     ALARM_FILTER_INFO,
     ALARM_FILTER_COUNT,
 } AlarmFilter_t;
+
+typedef enum {
+    PROD_PERIOD_DAILY = 0,
+    PROD_PERIOD_WEEKLY,
+    PROD_PERIOD_MONTHLY,
+} ProdPeriod_t;
 
 /* ─────────────────────────────────────────────
    ログカテゴリ・フィルタ
@@ -182,6 +201,41 @@ typedef struct {
 } AlarmRecord_t;
 
 /* ─────────────────────────────────────────────
+   ワークプログラム（NCプログラム種別）
+───────────────────────────────────────────── */
+#define WORK_PROG_COUNT  3
+
+typedef struct {
+    const char *name;      /* "Bracket" / "Shaft" / "Cover" */
+    uint16_t    target;    /* 目標数 */
+    uint16_t    completed; /* 完成数 */
+} WorkProgram_t;
+
+/* ─────────────────────────────────────────────
+   工具レコード
+───────────────────────────────────────────── */
+#define TOOL_MAX  8
+
+typedef struct {
+    char     number[4];    /* "T01" */
+    char     name[20];     /* "End Mill 6mm" */
+    uint32_t usage_count;
+    uint32_t max_life;
+} ToolRecord_t;
+
+/* ─────────────────────────────────────────────
+   メンテナンスレコード
+───────────────────────────────────────────── */
+#define MAINT_MAX  8
+
+typedef struct {
+    const char *name;
+    uint16_t    interval_days;
+    char        last_done[12]; /* "YYYY-MM-DD\0" */
+    int16_t     days_remaining;/* 負 = 期限超過 */
+} MaintRecord_t;
+
+/* ─────────────────────────────────────────────
    アプリケーション状態構造体
 ───────────────────────────────────────────── */
 typedef struct {
@@ -197,7 +251,7 @@ typedef struct {
     uint32_t        set_rpm;        /* 設定回転数 (0-3000, step 100) */
     uint8_t         feed_idx;       /* フィードインデックス */
 
-    /* センサ値（実機ではポーリング更新） */
+    /* センサ値 */
     uint32_t        actual_rpm;
     uint8_t         spindle_load;   /* % */
     uint8_t         spindle_temp;   /* °C */
@@ -207,16 +261,54 @@ typedef struct {
     uint32_t        parts_today;
     uint32_t        op_seconds;     /* 積算稼働秒 */
 
+    /* ワークプログラム */
+    WorkProgram_t   work_programs[WORK_PROG_COUNT];
+    uint8_t         active_program; /* 0-2 */
+    uint16_t        batch_target;   /* 全体目標数 */
+
+    /* 加工時間 */
+    uint32_t        piece_time_est_s;   /* 1ワーク予想秒 */
+    uint32_t        piece_time_elap_s;  /* 1ワーク経過秒 */
+    uint32_t        batch_time_est_s;   /* バッチ予想秒 */
+    uint32_t        batch_time_elap_s;  /* バッチ経過秒 */
+
+    /* 工具寿命 */
+    ToolRecord_t    tools[TOOL_MAX];
+    uint8_t         tool_count;
+    uint8_t         tool_cursor;
+    uint8_t         tool_scroll;
+
+    /* メンテナンス */
+    MaintRecord_t   maint_items[MAINT_MAX];
+    uint8_t         maint_count;
+    uint8_t         maint_cursor;
+    uint8_t         maint_scroll;
+
+    /* 生産サマリー */
+    ProdPeriod_t    prod_period;
+    uint32_t        prod_total_parts;
+    uint8_t         prod_op_rate_pct;
+    uint16_t        prod_daily[7];  /* 直近7日の日産数 [0]=今日 */
+
+    /* 座標・NCプログラム */
+    int32_t         coord_x, coord_y, coord_z; /* mm×1000 */
+    uint16_t        nc_program_no;    /* Oxxxx */
+    uint16_t        nc_block_no;      /* Nxxxx */
+    char            nc_block_text[48];
+    char            machine_mode[8];  /* "AUTO"/"MDI"/"JOG" */
+    uint8_t         feed_override_pct;
+
     /* メニューオーバーレイ */
     bool            menu_open;
     int8_t          menu_cursor;
+    uint8_t         menu_scroll;    /* 10項目対応スクロール */
 
     /* 認証アニメーション */
     uint32_t        auth_tick_start;
     UserRole_t      auth_pending;
     uint32_t        auth_duration_ms;
 
-    /* 認証成功バナー（上からスライドイン） */
+    /* 認証成功バナー */
     bool            auth_notif_active;
     uint32_t        auth_notif_start;
     const char     *auth_notif_name;
@@ -229,7 +321,7 @@ typedef struct {
     int8_t          alarm_cursor;
     uint8_t         alarm_scroll;
 
-    /* アラーム詳細パネル（下からスライドイン） */
+    /* アラーム詳細パネル */
     bool            alarm_detail_open;
     bool            alarm_detail_closing;
     uint32_t        alarm_detail_start;
@@ -244,18 +336,22 @@ typedef struct {
     LogFilter_t     log_filter;
 
     /* Settings */
-    uint8_t         settings_cursor;   /* 0-3: 選択行 */
-    bool            settings_editing;  /* 編集モード中 */
-    bool            settings_changed;  /* 未保存変更あり */
-    uint32_t        settings_max_rpm;  /* 0-3000, step 100 */
-    uint32_t        settings_min_rpm;  /* 0-3000, step 100 */
-    uint8_t         settings_feed_pattern; /* 0=4step, 1=2step */
-    uint8_t         settings_tool_no;  /* 1-5 */
+    uint8_t         settings_cursor;
+    bool            settings_editing;
+    bool            settings_changed;
+    uint32_t        settings_max_rpm;
+    uint32_t        settings_min_rpm;
+    uint8_t         settings_feed_pattern;
+    uint8_t         settings_tool_no;
 
-    /* ユーザー管理カーソル */
+    /* ユーザー管理 */
     uint8_t         user_cursor;
 
-    /* RFID アニメーション tick */
+    /* オペレーション画面 選択・編集モード */
+    uint8_t         oper_cursor;    /* 0=Machine, 1=RPM, 2=Feed */
+    bool            oper_editing;
+
+    /* アニメーション tick */
     uint32_t        anim_tick;
 
     /* タッチエッジ検出 */
@@ -264,6 +360,8 @@ typedef struct {
 
     /* 簡易 RTC */
     uint8_t         rtc_h, rtc_m, rtc_s;
+    uint8_t         rtc_day, rtc_mon;
+    uint16_t        rtc_year;
     uint32_t        rtc_last_tick;
 
     /* トースト通知 */
