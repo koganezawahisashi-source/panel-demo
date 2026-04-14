@@ -1144,7 +1144,7 @@ function renderCoordinate() {
     const fracP = absV % 1000;
     const sign  = neg ? '-' : ax.val > 0 ? '+' : ' ';
     const valStr = sign + String(intP).padStart(3, ' ') + '.' + String(fracP).padStart(3, '0');
-    text(ix + iw - 10, ay + axisRowH / 2, valStr, col, 28, 'right', 'middle');
+    text(ix + iw - 10, ay + axisRowH / 2, valStr, col, 28, 'right', 'middle', true);
   });
   y += xyzH + 4;
 

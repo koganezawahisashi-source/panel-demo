@@ -167,6 +167,17 @@ static void draw_arc(EVE_HalContext *phost,
     int segs = (int)(ARC_SEGS * pct / 100);
     if (segs < 1) segs = 1;
     if (segs > ARC_SEGS) segs = ARC_SEGS;
+
+    /* ── 開始キャップをフラットに ──
+       開始点は常に上端 (cx, cy-r)。SCISSOR で y < cy-r を除外すると
+       上端の丸キャップが完全にクリップされる。100%時は不要。 */
+    if (segs < ARC_SEGS) {
+        int16_t sci_y = (int16_t)(cy - r);
+        if (sci_y < 0) sci_y = 0;
+        EVE_CoDl_scissorXY(phost, 0, (uint16_t)sci_y);
+        EVE_CoDl_scissorSize(phost, 2048, 2048);
+    }
+
     SET_COLOR(phost, fg_color);
     EVE_CoDl_begin(phost, EVE_LINE_STRIP);
     for (int i = 0; i <= segs; i++) {
@@ -177,20 +188,38 @@ static void draw_arc(EVE_HalContext *phost,
     }
     EVE_CoDl_end(phost);
 
-    /* 先端を角（フラット）にする:
-       LINE_STRIP の丸キャップを bg_color の POINT で上書きして消す。
-       100% の場合は開始=終了点が同じため省略。 */
+    /* SCISSOR リセット */
+    if (segs < ARC_SEGS) {
+        EVE_CoDl_scissorXY(phost, 0, 0);
+        EVE_CoDl_scissorSize(phost, 2048, 2048);
+    }
+
+    /* ── 終端キャップをフラットに ──
+       終端方向のベクトルを求め、厚さ分の bg_color RECT を先端に重ね描き。
+       lineWidth=radius なので半幅 = thickness px。
+       終端 (ex, ey) を中心に thickness×thickness の矩形で丸みを覆う。 */
     if (segs < ARC_SEGS) {
         float   end_a = start + step * segs;
         int16_t ex    = (int16_t)(cx + r * __builtin_cosf(end_a));
         int16_t ey    = (int16_t)(cy + r * __builtin_sinf(end_a));
+        int16_t hw    = (int16_t)thickness;   /* half-width = line radius */
         SET_COLOR(phost, bg_color);
-        EVE_CoDl_pointSize(phost, (uint16_t)(thickness * 16));
-        EVE_CoDl_begin(phost, EVE_POINTS);
-        EVE_CoDl_vertex2f(phost, cx * 16, (cy - r) * 16);  /* 開始点: 常に上端 */
-        EVE_CoDl_vertex2f(phost, ex * 16, ey * 16);         /* 終了点 */
+        EVE_CoDl_begin(phost, EVE_RECTS);
+        EVE_CoDl_vertex2f(phost, (ex - hw) * 16, (ey - hw) * 16);
+        EVE_CoDl_vertex2f(phost, (ex + hw) * 16, (ey + hw) * 16);
         EVE_CoDl_end(phost);
     }
+}
+
+/* 疑似ボールドテキスト: x と x+1 に同じテキストを重ね描きして太く見せる
+   ※ EVE ROM フォントに Bold 変体がないため、2重描画で代替 */
+static void draw_text_bold(EVE_HalContext *phost,
+                           int16_t x, int16_t y,
+                           uint8_t font, uint16_t options,
+                           const char *s)
+{
+    EVE_CoCmd_text(phost, x,     y, font, options, s);
+    EVE_CoCmd_text(phost, x + 1, y, font, options, s);
 }
 
 /* 工具残寿命に応じた色 */
@@ -1015,7 +1044,7 @@ static void render_home(EVE_HalContext *phost, AppState_t *app)
         const char *st = (app->machine == MACHINE_RUNNING) ? "RUN" : "STP";
         uint32_t    sc = (app->machine == MACHINE_RUNNING) ? COL_GREEN : COL_RED;
         SET_COLOR(phost, sc);
-        EVE_CoCmd_text(phost, xA + wA / 2, y1 + 56, FONT_XL, EVE_OPT_CENTER, st);
+        draw_text_bold(phost, xA + wA / 2, y1 + 56, FONT_XL, EVE_OPT_CENTER, st);
     }
 
     /* Card B: スピンドル RPM */
@@ -1026,7 +1055,7 @@ static void render_home(EVE_HalContext *phost, AppState_t *app)
         char buf[10];
         snprintf(buf, sizeof(buf), "%lu", (unsigned long)app->actual_rpm);
         SET_COLOR(phost, COL_TXT);
-        EVE_CoCmd_text(phost, xB + wB / 2, y1 + 54, FONT_XL, EVE_OPT_CENTER, buf);
+        draw_text_bold(phost, xB + wB / 2, y1 + 54, FONT_XL, EVE_OPT_CENTER, buf);
         char buf2[16];
         snprintf(buf2, sizeof(buf2), "Set:%lu", (unsigned long)app->set_rpm);
         SET_COLOR(phost, COL_TXT2);
@@ -1216,7 +1245,7 @@ static void render_operation(EVE_HalContext *phost, AppState_t *app)
         EVE_CoCmd_text(phost, cx + 16, y + 10, FONT_SM, 0, "MACHINE CONTROL");
         SET_COLOR(phost, sc);
         /* EVE_OPT_CENTERY でRegion0(h=56)の中央に縦配置 → はみ出し防止 */
-        EVE_CoCmd_text(phost, cx + 16, y + 38, FONT_LG, EVE_OPT_CENTERY, st);
+        draw_text_bold(phost, cx + 16, y + 38, FONT_LG, EVE_OPT_CENTERY, st);
     }
 
     /* Region 1: RPM 表示・バー（Settings の max/min 連動） */
@@ -1878,7 +1907,7 @@ static void render_coordinate(EVE_HalContext *phost, AppState_t *app)
                      sign, (unsigned long)int_part, (unsigned long)dec_part);
             uint32_t vcol = (v < 0) ? COL_ORANGE : (v == 0 ? COL_TXT2 : COL_TXT);
             SET_COLOR(phost, vcol);
-            EVE_CoCmd_text(phost, cx + CONT_W - 24, cy2,
+            draw_text_bold(phost, cx + CONT_W - 24, cy2,
                            FONT_XL, EVE_OPT_RIGHTX | EVE_OPT_CENTERY, vbuf);
             if (i < 2)
                 draw_hline(phost, cx + 16, cy2 + 26, CONT_W - 32, COL_BORDER, 1);
