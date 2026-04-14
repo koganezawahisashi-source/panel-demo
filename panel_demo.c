@@ -176,6 +176,21 @@ static void draw_arc(EVE_HalContext *phost,
         EVE_CoDl_vertex2f(phost, px * 16, py * 16);
     }
     EVE_CoDl_end(phost);
+
+    /* 先端を角（フラット）にする:
+       LINE_STRIP の丸キャップを bg_color の POINT で上書きして消す。
+       100% の場合は開始=終了点が同じため省略。 */
+    if (segs < ARC_SEGS) {
+        float   end_a = start + step * segs;
+        int16_t ex    = (int16_t)(cx + r * __builtin_cosf(end_a));
+        int16_t ey    = (int16_t)(cy + r * __builtin_sinf(end_a));
+        SET_COLOR(phost, bg_color);
+        EVE_CoDl_pointSize(phost, (uint16_t)(thickness * 16));
+        EVE_CoDl_begin(phost, EVE_POINTS);
+        EVE_CoDl_vertex2f(phost, cx * 16, (cy - r) * 16);  /* 開始点: 常に上端 */
+        EVE_CoDl_vertex2f(phost, ex * 16, ey * 16);         /* 終了点 */
+        EVE_CoDl_end(phost);
+    }
 }
 
 /* 工具残寿命に応じた色 */
