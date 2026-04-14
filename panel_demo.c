@@ -26,7 +26,7 @@
 #define LOG_TAB_W           82      /* ログカテゴリタブ幅 */
 #define LOG_TAB_GAP         4       /* ログタブ間隔 */
 #define MENU_VIS            6       /* メニュー可視行数 */
-#define ARC_SEGS            32      /* 円弧分割数 */
+#define ARC_SEGS            64      /* 円弧分割数（滑らかさのため増量） */
 
 /* ═══════════════════════════════════════════════════════════
    フィードパターンテーブル
@@ -1198,9 +1198,10 @@ static void render_operation(EVE_HalContext *phost, AppState_t *app)
         const char *st = (app->machine == MACHINE_RUNNING) ? "RUNNING" : "STOPPED";
         uint32_t    sc = (app->machine == MACHINE_RUNNING) ? COL_GREEN : COL_RED;
         SET_COLOR(phost, COL_TXT3);
-        EVE_CoCmd_text(phost, cx + 16, y + 12, FONT_SM, 0, "MACHINE CONTROL");
+        EVE_CoCmd_text(phost, cx + 16, y + 10, FONT_SM, 0, "MACHINE CONTROL");
         SET_COLOR(phost, sc);
-        EVE_CoCmd_text(phost, cx + 16, y + 30, FONT_LG, 0, st);
+        /* EVE_OPT_CENTERY でRegion0(h=56)の中央に縦配置 → はみ出し防止 */
+        EVE_CoCmd_text(phost, cx + 16, y + 38, FONT_LG, EVE_OPT_CENTERY, st);
     }
 
     /* Region 1: RPM 表示・バー（Settings の max/min 連動） */
@@ -1334,10 +1335,11 @@ static void render_operation(EVE_HalContext *phost, AppState_t *app)
         RB   (TAG_R3, BTN_Y2, "",  COL_SURF,   false);
         RB   (TAG_R4, BTN_Y3, "",  COL_SURF,   false);
     } else {
-        RB(TAG_R1, BTN_Y0, "", COL_SURF, false);
-        RB(TAG_R2, BTN_Y1, "", COL_SURF, false);
-        RB(TAG_R3, BTN_Y2, "", COL_SURF, false);
-        RB(TAG_R4, BTN_Y3, "", COL_SURF, false);
+        /* 編集モード前でもグレー表示で +/- を見せる */
+        RB_XL(TAG_R1, BTN_Y0, "+", COL_SURF, false);
+        RB_XL(TAG_R2, BTN_Y1, "-", COL_SURF, false);
+        RB   (TAG_R3, BTN_Y2, "",  COL_SURF, false);
+        RB   (TAG_R4, BTN_Y3, "",  COL_SURF, false);
     }
 }
 

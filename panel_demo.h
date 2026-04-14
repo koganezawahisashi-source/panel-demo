@@ -96,7 +96,7 @@
 #define FONT_SM     26  /* 補助ラベル（≈14px） */
 #define FONT_MD     28  /* 一般データ（≈19px） */
 #define FONT_LG     30  /* 重要情報（≈24px） */
-#define FONT_XL     33  /* 主要数値（≈40px） */
+#define FONT_XL     31  /* 主要数値（≈28px, FT81x/BT81x共通最大） */
 
 /* ─────────────────────────────────────────────
    画面・パネル・権限・状態 enum
