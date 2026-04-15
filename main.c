@@ -74,6 +74,10 @@ int main(void)
     EVE_Hal_wr8(phost, REG_TOUCH_MODE, TOUCHMODE_CONTINUOUS);
     EVE_Hal_wr16(phost, REG_TOUCH_RZTHRESH, 1200);
 
+    /* カスタムフォントをFlashからRAM_Gに展開してハンドル登録
+     * ※ EVE_Util_bootupConfig() 完了後、panel_demo_init() より前に実行すること */
+    panel_demo_load_fonts(phost);
+
     /* アプリケーション状態初期化 */
     AppState_t app;
     panel_demo_init(&app);

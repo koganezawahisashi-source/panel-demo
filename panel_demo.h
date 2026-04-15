@@ -90,13 +90,23 @@
     EVE_CoDl_colorRgb((phost), COL_R(c), COL_G(c), COL_B(c))
 
 /* ─────────────────────────────────────────────
-   フォント番号（EVE ROM フォント）
-   ※ 50cm視認距離対応: 重要数値=FONT_XL, データ=FONT_LG
+   フォント番号
+   FONT_SM : カスタムフォント（Inter / Flash格納）
+   FONT_MD〜XL : EVE ROMフォント（追加変換後に順次置換予定）
 ───────────────────────────────────────────── */
-#define FONT_SM     26  /* 補助ラベル（≈14px） */
-#define FONT_MD     28  /* 一般データ（≈19px） */
-#define FONT_LG     30  /* 重要情報（≈24px） */
-#define FONT_XL     31  /* 主要数値（≈28px, FT81x/BT81x共通最大） */
+#define FONT_SM     26  /* Inter 30pt L4（カスタム・Flash）        */
+#define FONT_MD     28  /* ROMフォント 一般データ（≈19px）         */
+#define FONT_LG     30  /* ROMフォント 重要情報（≈24px）           */
+#define FONT_XL     31  /* ROMフォント 主要数値（≈28px）           */
+
+/* ─────────────────────────────────────────────
+   カスタムフォント Flash/RAM_G パラメータ
+   ※ EVE Asset Builder 4.2.0 で変換・Flash書き込み済み
+   ※ flash-817-default.map の値を参照して設定
+───────────────────────────────────────────── */
+#define FONT_FLASH_OFFSET   4096UL  /* Flash上のフォントデータ開始位置（64byte境界） */
+#define FONT_DATA_SIZE      7376UL  /* フォントデータサイズ（4の倍数であること）     */
+#define FONT_RAM_G_BASE     0UL     /* RAM_G上の展開先アドレス                       */
 
 /* ─────────────────────────────────────────────
    画面・パネル・権限・状態 enum
@@ -374,9 +384,10 @@ typedef struct {
 /* ─────────────────────────────────────────────
    公開関数
 ───────────────────────────────────────────── */
-void panel_demo_init  (AppState_t *app);
-void panel_demo_update(AppState_t *app, uint32_t tick_ms);
-void panel_demo_render(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms);
-void panel_demo_touch (EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms);
+void panel_demo_init        (AppState_t *app);
+void panel_demo_load_fonts  (EVE_HalContext *phost);   /* Flash→RAM_G展開+ハンドル登録 */
+void panel_demo_update      (AppState_t *app, uint32_t tick_ms);
+void panel_demo_render      (EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms);
+void panel_demo_touch       (EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms);
 
 #endif /* PANEL_DEMO_H */

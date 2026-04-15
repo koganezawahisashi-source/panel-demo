@@ -338,6 +338,43 @@ static void show_toast(AppState_t *app, const char *msg, uint32_t tick_ms)
 }
 
 /* ═══════════════════════════════════════════════════════════
+   カスタムフォントロード（起動時1回呼び出し）
+   EVE_Util_bootupConfig() 完了後、panel_demo_init() より前に実行すること
+═══════════════════════════════════════════════════════════ */
+
+void panel_demo_load_fonts(EVE_HalContext *phost)
+{
+    /* STEP 1: Flash → RAM_G へフォントデータを転送
+     *   src  : FONT_FLASH_OFFSET (64byte境界、Flash書き込み時のオフセットと一致)
+     *   dest : FONT_RAM_G_BASE   (RAM_G先頭)
+     *   num  : FONT_DATA_SIZE    (4の倍数)
+     * 転送完了まで待機する _flush バリアントを使用する */
+    if (!EVE_CoCmd_flashRead_flush(phost,
+                                   FONT_RAM_G_BASE,
+                                   FONT_FLASH_OFFSET,
+                                   FONT_DATA_SIZE)) {
+        printf("[FONT] Flash read failed — ROM font fallback\n");
+        return;
+    }
+    printf("[FONT] Flash read OK (%lu bytes → RAM_G+%lu)\n",
+           FONT_DATA_SIZE, FONT_RAM_G_BASE);
+
+    /* STEP 2: CMD_SETFONT2 でハンドルを登録
+     *   handle    : FONT_SM (= 26)
+     *   ptr       : FONT_RAM_G_BASE (RAM_G上の Font Block 先頭)
+     *   firstchar : 32 (スペース = 0x20, EVE Asset Builder の設定と一致)
+     * CMD_SETFONT2 はコプロセッサコマンドのため DL フレーム内で発行する */
+    EVE_CoCmd_dlStart(phost);
+    EVE_CoDl_clearColorRgb(phost, 0, 0, 0);
+    EVE_CoDl_clear(phost, 1, 1, 1);
+    EVE_CoCmd_setFont2(phost, FONT_SM, FONT_RAM_G_BASE, 32);
+    EVE_CoCmd_swap(phost);
+    EVE_Cmd_waitFlush(phost);
+
+    printf("[FONT] Handle %d registered (Inter 30pt L4)\n", FONT_SM);
+}
+
+/* ═══════════════════════════════════════════════════════════
    初期化
 ═══════════════════════════════════════════════════════════ */
 
