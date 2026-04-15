@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <title>BT817 Panel Simulator — 800x480</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -12,7 +15,7 @@
     align-items: center;
     justify-content: flex-start;
     min-height: 100vh;
-    font-family: 'Segoe UI', Arial, sans-serif;
+    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
     padding: 20px;
   }
   #info {
@@ -260,9 +263,13 @@ function vline(x, y, h, color, lw = 1) {
 }
 
 /* フォントスケールを適用 */
-function text(x, y, str, color, size = 13, align = 'left', baseline = 'middle', bold = false) {
+function text(x, y, str, color, size = 13, align = 'left', baseline = 'middle', bold = false, mono = false) {
   ctx.fillStyle    = color;
-  ctx.font         = `${bold ? '700' : '400'} ${Math.round(size * FONT_SCALE)}px "Segoe UI", Arial, sans-serif`;
+  const family = mono
+    ? '"JetBrains Mono", "Courier New", monospace'
+    : '"Inter", "Segoe UI", sans-serif';
+  const weight = bold ? (mono ? '700' : '600') : '400';
+  ctx.font         = `${weight} ${Math.round(size * FONT_SCALE)}px ${family}`;
   ctx.textAlign    = align;
   ctx.textBaseline = baseline;
   ctx.fillText(str, x, y);
@@ -314,7 +321,7 @@ function chip(x, y, label, color) {
 /* 長いテキストを最大2行に折り返して描画 */
 function textWrap2(x, y1, y2, str, color, size, maxW) {
   const scaledSize = Math.round(size * FONT_SCALE);
-  ctx.font = `400 ${scaledSize}px "Segoe UI", Arial, sans-serif`;
+  ctx.font = `400 ${scaledSize}px "Inter", "Segoe UI", sans-serif`;
   if (ctx.measureText(str).width <= maxW) {
     text(x, y1, str, color, size, 'left', 'middle');
     return;
@@ -404,7 +411,7 @@ function renderHeader() {
   const ts = `${p2(state.rtcH)}:${p2(state.rtcM)}:${p2(state.rtcS)}`;
   text(RIGHT_X - 8, 10, state.userName,    C.TXT,  13, 'right', 'top');
   text(RIGHT_X - 8, 36, state.userRoleStr, C.TXT2, 12, 'right', 'top');
-  text(RIGHT_X - 8, 60, ts,               C.TXT2, 13, 'right', 'top');
+  text(RIGHT_X - 8, 60, ts,               C.TXT2, 13, 'right', 'top', false, true);
 
   /* アクティブアラームバッジ */
   const activeCount = state.alarms.filter(a => a.active).length;
@@ -444,7 +451,7 @@ function renderLock(now) {
   text(cx, cy + 96, 'Present RFID card  —  or select role \u2192', C.TXT2, 13, 'center');
 
   const ts = `${p2(state.rtcH)}:${p2(state.rtcM)}:${p2(state.rtcS)}`;
-  text(cx, H - 58, ts, C.TXT, 36, 'center', 'middle');
+  text(cx, H - 58, ts, C.TXT, 36, 'center', 'middle', false, true);
   const dateStr = state.rtcYear + '/' + p2(state.rtcMon) + '/' + p2(state.rtcDay);
   text(cx, H - 20, dateStr, C.TXT2, 13, 'center');
 
@@ -622,7 +629,7 @@ function renderHome() {
   /* Card B: スピンドルRPM */
   card(xB, y1, wB, h1);
   text(xB + 8,     y1 + 8,  'SPINDLE RPM', C.TXT2, 10, 'left', 'top');
-  text(xB + wB/2,  y1 + 54, state.actualRpm + '', C.TXT, 28, 'center', 'middle');
+  text(xB + wB/2,  y1 + 54, state.actualRpm + '', C.TXT, 28, 'center', 'middle', false, true);
   text(xB + wB/2,  y1 + 90, 'Set:' + state.setRpm, C.TXT2, 10, 'center', 'bottom');
 
   /* Card C: バッチ進捗 弧グラフ */
@@ -1145,7 +1152,7 @@ function renderCoordinate() {
     const fracP = absV % 1000;
     const sign  = neg ? '-' : ax.val > 0 ? '+' : ' ';
     const valStr = sign + String(intP).padStart(3, ' ') + '.' + String(fracP).padStart(3, '0');
-    text(ix + iw - 10, ay + axisRowH / 2, valStr, col, 28, 'right', 'middle', true);
+    text(ix + iw - 10, ay + axisRowH / 2, valStr, col, 28, 'right', 'middle', true, true);
   });
   y += xyzH + 4;
 
