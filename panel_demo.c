@@ -1043,7 +1043,7 @@ static void render_home(EVE_HalContext *phost, AppState_t *app)
         uint8_t pct = (total_tgt > 0) ? (uint8_t)(total_comp * 100 / total_tgt) : 0;
         int16_t arc_cx = xC + 100;
         int16_t arc_cy = y1 + h1 / 2 + 4;
-        draw_arc(phost, arc_cx, arc_cy, 36, COL_CARD2, COL_GREEN, 6, pct);
+        draw_arc(phost, arc_cx, arc_cy, 36, COL_BG, COL_GREEN, 6, pct);
         char pbuf[8];
         snprintf(pbuf, sizeof(pbuf), "%d%%", pct);
         SET_COLOR(phost, COL_TXT);
@@ -1075,7 +1075,7 @@ static void render_home(EVE_HalContext *phost, AppState_t *app)
                     : 0;
         int16_t arc_cx = xD + 110;
         int16_t arc_cy = y2 + 92;
-        draw_arc(phost, arc_cx, arc_cy, 58, COL_CARD2, COL_ACCENT, 8, pct);
+        draw_arc(phost, arc_cx, arc_cy, 58, COL_BG, COL_ACCENT, 8, pct);
         char pbuf[8];
         snprintf(pbuf, sizeof(pbuf), "%d%%", pct);
         SET_COLOR(phost, COL_TXT);

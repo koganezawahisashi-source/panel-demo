@@ -632,7 +632,7 @@ function renderHome() {
     const totalTgt  = state.workPrograms.reduce((s,p)=>s+p.target,0);
     const pct = totalTgt > 0 ? Math.round(totalComp * 100 / totalTgt) : 0;
     const arcCx = xC + 100, arcCy = y1 + h1/2 + 4;
-    drawArc(arcCx, arcCy, 36, C.CARD2, C.GREEN, 6, pct);
+    drawArc(arcCx, arcCy, 36, C.BG, C.GREEN, 6, pct);
     text(arcCx, arcCy, pct + '%', C.TXT, 10, 'center', 'middle');
     const rx = arcCx + 46;
     text(rx, arcCy - 10, totalComp + '/' + totalTgt, C.TXT, 13, 'left', 'middle');
@@ -646,7 +646,7 @@ function renderHome() {
   text(xD + 8, y2 + 8, 'WORKPIECE TIME', C.TXT3, 10, 'left', 'top');
   { const pct = state.pieceTimeEst > 0 ? Math.round(state.pieceTimeElap * 100 / state.pieceTimeEst) : 0;
     const arcCx = xD + 110, arcCy = y2 + 92;
-    drawArc(arcCx, arcCy, 58, C.CARD2, C.ACCENT, 8, pct);
+    drawArc(arcCx, arcCy, 58, C.BG, C.ACCENT, 8, pct);
     text(arcCx, arcCy, pct + '%', C.TXT, 16, 'center', 'middle');
     const tx = arcCx + 68;
     text(tx, arcCy - 32, 'Est:',           C.TXT3,   10, 'left', 'middle');
