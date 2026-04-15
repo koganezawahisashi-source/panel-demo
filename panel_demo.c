@@ -1123,11 +1123,13 @@ static void render_home(EVE_HalContext *phost, AppState_t *app)
     SET_COLOR(phost, COL_TXT);
     EVE_CoCmd_text(phost, ix + 8, y3 + 8, FONT_SM, 0, "RECENT ALARMS");
 
-    for (int i = 0; i < 3 && i < (int)app->alarm_count; i++) {
+    int shown = 0;
+    for (int i = 0; i < (int)app->alarm_count && shown < 3; i++) {
         AlarmRecord_t *al = &app->alarms[i];
+        if (!al->active) continue;
         uint32_t lc = (al->level == ALARM_LVL_ERROR) ? COL_RED :
                       (al->level == ALARM_LVL_WARN)  ? COL_YELLOW : COL_ACCENT;
-        int16_t ay = y3 + 44 + i * 24;
+        int16_t ay = y3 + 44 + shown * 24;
         SET_COLOR(phost, lc);
         EVE_CoCmd_text(phost, ix + 8,  ay, FONT_SM, 0, ">");
         SET_COLOR(phost, COL_TXT);
@@ -1142,6 +1144,7 @@ static void render_home(EVE_HalContext *phost, AppState_t *app)
         }
         SET_COLOR(phost, COL_TXT3);
         EVE_CoCmd_text(phost, CONT_X + CONT_W - 24, ay, FONT_SM, EVE_OPT_RIGHTX, time_disp);
+        shown++;
     }
 
     /* 右ボタン: R1=OPER, R2=COORD, R3=TOOL, R4=EXIT */
@@ -1170,28 +1173,19 @@ static void render_operation(EVE_HalContext *phost, AppState_t *app)
 
     draw_card(phost, cx + 8, y, lw, lh);
 
-    /* パラメータ選択領域 */
+    /* パラメータ選択領域（lh=324 を4等分: h0=72, h1=92, h2=80, h3=80） */
     typedef struct { int16_t y0; int16_t h; } SelRegion_t;
     const SelRegion_t SEL_REGIONS[3] = {
-        { (int16_t)(y +   0), 56  },  /* 0: Machine Control */
-        { (int16_t)(y +  56), 92  },  /* 1: RPM */
-        { (int16_t)(y + 148), 68  },  /* 2: Feed Rate */
+        { (int16_t)(y +   0), 72  },  /* 0: Machine Control */
+        { (int16_t)(y +  72), 92  },  /* 1: RPM */
+        { (int16_t)(y + 164), 80  },  /* 2: Feed Rate */
     };
     const SelRegion_t *selReg = &SEL_REGIONS[app->oper_cursor];
     bool isEd = app->oper_editing;
 
-    /* 選択ハイライト */
+    /* 選択ハイライト（左アクセントバーのみ、枠線なし） */
     draw_rect(phost, cx + 8, selReg->y0, lw, selReg->h,
               isEd ? 0x0D2E50UL : 0x1A3A5CUL);
-    SET_COLOR(phost, COL_ACCENT);
-    EVE_CoDl_lineWidth(phost, 2 * 16);
-    EVE_CoDl_begin(phost, EVE_LINE_STRIP);
-    EVE_CoDl_vertex2f(phost, (cx + 9)          * 16, (selReg->y0 + 1)              * 16);
-    EVE_CoDl_vertex2f(phost, (cx + 8 + lw - 1) * 16, (selReg->y0 + 1)              * 16);
-    EVE_CoDl_vertex2f(phost, (cx + 8 + lw - 1) * 16, (selReg->y0 + selReg->h - 1) * 16);
-    EVE_CoDl_vertex2f(phost, (cx + 9)          * 16, (selReg->y0 + selReg->h - 1) * 16);
-    EVE_CoDl_vertex2f(phost, (cx + 9)          * 16, (selReg->y0 + 1)              * 16);
-    EVE_CoDl_end(phost);
     /* 左アクセントバー */
     draw_rect(phost, cx + 8, selReg->y0, 6, selReg->h, COL_ACCENT);
     /* 右端 ▶ */
@@ -1201,22 +1195,21 @@ static void render_operation(EVE_HalContext *phost, AppState_t *app)
                    FONT_SM, EVE_OPT_CENTERY | EVE_OPT_RIGHTX, ">");
 
     /* セクション区切り線 */
-    draw_hline(phost, cx + 16, y +  56, lw - 24, COL_BORDER, 1);
-    draw_hline(phost, cx + 16, y + 148, lw - 24, COL_BORDER, 1);
-    draw_hline(phost, cx + 16, y + 216, lw - 24, COL_BORDER, 1);
+    draw_hline(phost, cx + 16, y +  72, lw - 24, COL_BORDER, 1);
+    draw_hline(phost, cx + 16, y + 164, lw - 24, COL_BORDER, 1);
+    draw_hline(phost, cx + 16, y + 244, lw - 24, COL_BORDER, 1);
 
-    /* Region 0: 運転状態 */
+    /* Region 0: 運転状態 (h=72) */
     {
         const char *st = (app->machine == MACHINE_RUNNING) ? "RUNNING" : "STOPPED";
         uint32_t    sc = (app->machine == MACHINE_RUNNING) ? COL_GREEN : COL_RED;
         SET_COLOR(phost, COL_TXT3);
         EVE_CoCmd_text(phost, cx + 16, y + 10, FONT_SM, 0, "MACHINE CONTROL");
         SET_COLOR(phost, sc);
-        /* EVE_OPT_CENTERY でRegion0(h=56)の中央に縦配置 → はみ出し防止 */
-        draw_text_bold(phost, cx + 16, y + 38, FONT_LG, EVE_OPT_CENTERY, st);
+        draw_text_bold(phost, cx + 16, y + 40, FONT_LG, EVE_OPT_CENTERY, st);
     }
 
-    /* Region 1: RPM 表示・バー（Settings の max/min 連動） */
+    /* Region 1: RPM 表示・バー (starts y+72, h=92) */
     {
         uint32_t rpm_max   = app->settings_max_rpm;
         uint32_t rpm_min   = app->settings_min_rpm;
@@ -1228,51 +1221,51 @@ static void render_operation(EVE_HalContext *phost, AppState_t *app)
         char buf[24];
         snprintf(buf, sizeof(buf), "SET: %lu RPM", (unsigned long)app->set_rpm);
         SET_COLOR(phost, COL_TXT);
-        EVE_CoCmd_text(phost, cx + 16, y + 64, FONT_MD, 0, buf);
+        EVE_CoCmd_text(phost, cx + 16, y + 80, FONT_MD, 0, buf);
 
         snprintf(buf, sizeof(buf), "ACT: %lu RPM", (unsigned long)app->actual_rpm);
         SET_COLOR(phost, COL_TXT2);
-        EVE_CoCmd_text(phost, cx + 16, y + 86, FONT_SM, 0, buf);
+        EVE_CoCmd_text(phost, cx + 16, y + 102, FONT_SM, 0, buf);
 
-        draw_bar(phost, cx + 16, y + 108, lw - 32, 10, pct, bar_col);
+        draw_bar(phost, cx + 16, y + 124, lw - 32, 10, pct, bar_col);
 
         char mn_buf[8], md_buf[8], mx_buf[8];
         snprintf(mn_buf, sizeof(mn_buf), "%lu", (unsigned long)rpm_min);
         snprintf(md_buf, sizeof(md_buf), "%lu", (unsigned long)((rpm_min + rpm_max) / 2));
         snprintf(mx_buf, sizeof(mx_buf), "%lu", (unsigned long)rpm_max);
         SET_COLOR(phost, COL_TXT3);
-        EVE_CoCmd_text(phost, cx + 16,                  y + 124, FONT_SM, 0,                mn_buf);
-        EVE_CoCmd_text(phost, cx + 16 + (lw - 32) / 2, y + 124, FONT_SM, EVE_OPT_CENTERX,  md_buf);
-        EVE_CoCmd_text(phost, cx + lw - 16,             y + 124, FONT_SM, EVE_OPT_RIGHTX,   mx_buf);
+        EVE_CoCmd_text(phost, cx + 16,                  y + 140, FONT_SM, 0,                mn_buf);
+        EVE_CoCmd_text(phost, cx + 16 + (lw - 32) / 2, y + 140, FONT_SM, EVE_OPT_CENTERX,  md_buf);
+        EVE_CoCmd_text(phost, cx + lw - 16,             y + 140, FONT_SM, EVE_OPT_RIGHTX,   mx_buf);
     }
 
-    /* Region 2: フィードレートタブ（パターン対応） */
+    /* Region 2: フィードレートタブ (starts y+164, h=80) */
     {
         uint8_t pat_cnt = feed_pattern_count[app->settings_feed_pattern];
         SET_COLOR(phost, COL_TXT3);
-        EVE_CoCmd_text(phost, cx + 16, y + 148, FONT_SM, 0, "FEED RATE");
+        EVE_CoCmd_text(phost, cx + 16, y + 174, FONT_SM, 0, "FEED RATE");
         for (int i = 0; i < pat_cnt; i++) {
             uint8_t val = feed_patterns[app->settings_feed_pattern][i];
             int16_t fx  = cx + 16 + i * 62;
             bool    sel = (app->feed_idx == i);
             bool    is100 = (val == 100);
             uint32_t bg = sel ? (is100 ? COL_GREEN : COL_ACCENT) : COL_CARD2;
-            draw_rect(phost, fx, y + 166, 56, 28, bg);
+            draw_rect(phost, fx, y + 192, 56, 28, bg);
             char lbl[8]; snprintf(lbl, sizeof(lbl), "%d%%", val);
             SET_COLOR(phost, sel ? COL_WHITE : COL_TXT2);
-            EVE_CoCmd_text(phost, fx + 28, y + 180, FONT_SM, EVE_OPT_CENTER, lbl);
+            EVE_CoCmd_text(phost, fx + 28, y + 206, FONT_SM, EVE_OPT_CENTER, lbl);
         }
     }
 
-    /* スピンドル負荷（バーと%テキストを重ならないよう分離） */
+    /* Spindle Load (starts y+244, h=80) */
     {
         char buf[12];
         SET_COLOR(phost, COL_TXT3);
-        EVE_CoCmd_text(phost, cx + 16, y + 212, FONT_SM, 0, "SPINDLE LOAD");
-        draw_bar(phost, cx + 16, y + 232, lw - 32, 14, app->spindle_load, COL_TEAL);
+        EVE_CoCmd_text(phost, cx + 16, y + 252, FONT_SM, 0, "SPINDLE LOAD");
+        draw_bar(phost, cx + 16, y + 270, lw - 32, 14, app->spindle_load, COL_TEAL);
         snprintf(buf, sizeof(buf), "%d%%", app->spindle_load);
         SET_COLOR(phost, COL_TXT);
-        EVE_CoCmd_text(phost, cx + 16 + (lw - 32) / 2, y + 264,
+        EVE_CoCmd_text(phost, cx + 16 + (lw - 32) / 2, y + 294,
                        FONT_SM, EVE_OPT_CENTERX, buf);
     }
 
@@ -2122,7 +2115,7 @@ static void render_menu_overlay(EVE_HalContext *phost, AppState_t *app)
         { TAG_MENU_TOOL,  "Tool Life",   false, PANEL_TOOL_LIFE   },
         { TAG_MENU_ALRM,  "Alarms",      false, PANEL_ALARM       },
         { TAG_MENU_LOG,   "Log",         false, PANEL_LOG         },
-        { TAG_MENU_PROD,  "Production",  true,  PANEL_PRODUCTION  },
+        { TAG_MENU_PROD,  "Production",  false, PANEL_PRODUCTION  },
         { TAG_MENU_MAINT, "Maintenance", true,  PANEL_MAINTENANCE },
         { TAG_MENU_SETT,  "Settings",    true,  PANEL_SETTINGS    },
         { TAG_MENU_USERS, "Users",       true,  PANEL_USERS       },
@@ -2330,24 +2323,18 @@ void panel_demo_touch(EVE_HalContext *phost, AppState_t *app, uint32_t tick_ms)
     if (app->menu_open) {
         int8_t max_item = menu_item_count(app);
         switch (tag) {
-        case TAG_L2:  /* カーソル UP */
+        case TAG_L2:  /* カーソル UP（トップ止まり） */
             if (app->menu_cursor > 0) {
                 app->menu_cursor--;
                 if (app->menu_cursor < (int8_t)app->menu_scroll)
                     app->menu_scroll = (uint8_t)app->menu_cursor;
-            } else {
-                app->menu_cursor = max_item - 1;
-                app->menu_scroll = (uint8_t)((max_item > MENU_VIS) ? max_item - MENU_VIS : 0);
             }
             break;
-        case TAG_L4:  /* カーソル DOWN */
+        case TAG_L4:  /* カーソル DOWN（ボトム止まり） */
             if (app->menu_cursor < max_item - 1) {
                 app->menu_cursor++;
                 if (app->menu_cursor >= (int8_t)(app->menu_scroll + MENU_VIS))
                     app->menu_scroll = (uint8_t)(app->menu_cursor - MENU_VIS + 1);
-            } else {
-                app->menu_cursor = 0;
-                app->menu_scroll = 0;
             }
             break;
         case TAG_L3:

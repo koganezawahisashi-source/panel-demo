@@ -58,8 +58,8 @@ const C = {
   BG:     '#080C14', SURF:   '#0F1623', CARD:   '#172032',
   CARD2:  '#1E2A3D', BORDER: '#243044', ACCENT: '#4F8EF7',
   TEAL:   '#22D3EE', GREEN:  '#34D399', YELLOW: '#FBBF24',
-  ORANGE: '#F97316', RED:    '#F87171', TXT:    '#E8EEF8',
-  TXT2:   '#8B9BBF', TXT3:   '#4A5A7A', WHITE:  '#FFFFFF',
+  ORANGE: '#F97316', RED:    '#F87171', TXT:    '#F2F6FF',
+  TXT2:   '#BDCBEA', TXT3:   '#4A5A7A', WHITE:  '#FFFFFF',
 };
 
 /* ═══════════════════════════════════════════════
@@ -669,7 +669,7 @@ function renderHome() {
   /* ── 行3: 直近アラーム ── */
   card(ix, y3, iw, h3);
   text(ix + 8, y3 + 8, 'RECENT ALARMS', C.TXT, 11, 'left', 'top', true);
-  state.alarms.slice(0, 3).forEach((al, i) => {
+  state.alarms.filter(al => al.active).slice(0, 3).forEach((al, i) => {
     const lc = al.level === 'error' ? C.RED : al.level === 'warn' ? C.YELLOW : C.ACCENT;
     const ay = y3 + 44 + i * 24;
     text(ix + 8,  ay, '▶', lc, 10, 'left', 'middle');
@@ -700,63 +700,62 @@ function renderOperation() {
 
   card(CONT_X + 8, y, lw, lh);
 
-  /* パラメータ選択領域（カード内 y 相対） */
+  /* パラメータ選択領域（lh均等配分: h0=72, h1=92, h2=80, h3=80） */
   const SEL_REGIONS = [
-    { y0: y + 0,   h: 56  },   /* 0: Machine Control */
-    { y0: y + 56,  h: 92  },   /* 1: RPM */
-    { y0: y + 148, h: 68  },   /* 2: Feed Rate */
+    { y0: y + 0,   h: 72  },   /* 0: Machine Control */
+    { y0: y + 72,  h: 92  },   /* 1: RPM */
+    { y0: y + 164, h: 80  },   /* 2: Feed Rate */
   ];
 
-  /* 選択ハイライト */
+  /* 選択ハイライト（左アクセントバーのみ、枠線なし） */
   const selReg = SEL_REGIONS[state.operCursor];
   const isEd   = state.operEditing;
   rect(CONT_X + 8, selReg.y0, lw, selReg.h, isEd ? '#0d2e50' : '#1a3a5c');
-  strokeRect(CONT_X + 9, selReg.y0 + 1, lw - 2, selReg.h - 2, isEd ? C.ACCENT : '#4F8EF7', 2);
   rect(CONT_X + 8, selReg.y0, 6,  selReg.h, isEd ? C.ACCENT  : '#4F8EF7');
   /* 右端 ▶ インジケーター */
   text(CONT_X + 8 + lw - 18, selReg.y0 + selReg.h / 2, '\u25b6',
        isEd ? C.ACCENT : '#4F8EF7', 10, 'right', 'middle');
 
   /* セクション区切り線 */
-  hline(CONT_X + 16, y + 56,  lw - 24, C.BORDER);
-  hline(CONT_X + 16, y + 148, lw - 24, C.BORDER);
-  hline(CONT_X + 16, y + 216, lw - 24, C.BORDER);
+  hline(CONT_X + 16, y + 72,  lw - 24, C.BORDER);
+  hline(CONT_X + 16, y + 164, lw - 24, C.BORDER);
+  hline(CONT_X + 16, y + 244, lw - 24, C.BORDER);
 
   const stStr = state.machine === MACHINE.RUNNING ? 'RUNNING' : 'STOPPED';
   const stCol = state.machine === MACHINE.RUNNING ? C.GREEN   : C.RED;
 
-  /* Region 0: Machine Control */
+  /* Region 0: Machine Control (h=72) */
   text(CONT_X + 16, y + 12, 'MACHINE CONTROL', C.TXT3, 10, 'left', 'top');
-  text(CONT_X + 16, y + 32, stStr, stCol, 16, 'left', 'top', true);
+  text(CONT_X + 16, y + 40, stStr, stCol, 16, 'left', 'middle', true);
 
-  /* Region 1: RPM */
-  text(CONT_X + 16, y + 66,  'SET: ' + state.setRpm + ' RPM',    C.TXT,  13, 'left', 'top', true);
-  text(CONT_X + 16, y + 88,  'ACT: ' + state.actualRpm + ' RPM', C.TXT2, 11, 'left', 'top');
+  /* Region 1: RPM (starts y+72, h=92) */
+  text(CONT_X + 16, y + 80,  'SET: ' + state.setRpm + ' RPM',    C.TXT,  13, 'left', 'top', true);
+  text(CONT_X + 16, y + 102, 'ACT: ' + state.actualRpm + ' RPM', C.TXT2, 11, 'left', 'top');
   const rpmMin = state.settingsParams.minRpm;
   const rpmMax = state.settingsParams.maxRpm;
   const rpmRange = rpmMax - rpmMin || 1;
   const rpmPct = Math.round(Math.max(0, state.setRpm - rpmMin) * 100 / rpmRange);
-  bar(CONT_X + 16, y + 110, lw - 32, 10, rpmPct, rpmColor(state.setRpm));
-  text(CONT_X + 16,                  y + 126, rpmMin + '',                            C.TXT3, 10, 'left',   'top');
-  text(CONT_X + 16 + (lw - 32) / 2, y + 126, Math.round((rpmMin + rpmMax) / 2) + '', C.TXT3, 10, 'center', 'top');
-  text(CONT_X + lw - 16,            y + 126, rpmMax + '',                             C.TXT3, 10, 'right',  'top');
+  bar(CONT_X + 16, y + 124, lw - 32, 10, rpmPct, rpmColor(state.setRpm));
+  text(CONT_X + 16,                  y + 140, rpmMin + '',                            C.TXT3, 10, 'left',   'top');
+  text(CONT_X + 16 + (lw - 32) / 2, y + 140, Math.round((rpmMin + rpmMax) / 2) + '', C.TXT3, 10, 'center', 'top');
+  text(CONT_X + lw - 16,            y + 140, rpmMax + '',                             C.TXT3, 10, 'right',  'top');
 
-  /* Region 2: Feed Rate */
+  /* Region 2: Feed Rate (starts y+164, h=80) */
   const fv = getFeedVals();
-  text(CONT_X + 16, y + 158, 'FEED RATE', C.TXT3, 10, 'left', 'top');
+  text(CONT_X + 16, y + 174, 'FEED RATE', C.TXT3, 10, 'left', 'top');
   fv.forEach((val, i) => {
     const fx     = CONT_X + 16 + i * 62;
     const sel    = state.feedIdx === i;
     const is100  = val === 100;
     const selCol = sel ? (is100 ? C.GREEN : C.ACCENT) : C.CARD2;
-    rect(fx, y + 176, 56, 28, selCol);
-    text(fx + 28, y + 190, val + '%', sel ? C.WHITE : C.TXT2, 12, 'center');
+    rect(fx, y + 192, 56, 28, selCol);
+    text(fx + 28, y + 206, val + '%', sel ? C.WHITE : C.TXT2, 12, 'center');
   });
 
-  /* 非選択領域: Spindle Load */
-  text(CONT_X + 16, y + 226, 'SPINDLE LOAD', C.TXT3, 10, 'left', 'top');
-  bar(CONT_X + 16, y + 246, lw - 32, 14, state.spindleLoad, C.TEAL);
-  text(CONT_X + 16 + (lw - 32) / 2, y + 278, state.spindleLoad + '%', C.TXT, 11, 'center');
+  /* Spindle Load (starts y+244, h=80) */
+  text(CONT_X + 16, y + 252, 'SPINDLE LOAD', C.TXT3, 10, 'left', 'top');
+  bar(CONT_X + 16, y + 270, lw - 32, 14, state.spindleLoad, C.TEAL);
+  text(CONT_X + 16 + (lw - 32) / 2, y + 294, state.spindleLoad + '%', C.TXT, 11, 'center');
 
   /* ヒントテキスト */
   if (isEd) {
@@ -1297,7 +1296,7 @@ const MENU_ALL = [
   { label: 'Tool Life',   admin: false, panel: PANEL.TOOL_LIFE,   tag: 25 },
   { label: 'Alarms',      admin: false, panel: PANEL.ALARM,       tag: 23 },
   { label: 'Log',         admin: false, panel: PANEL.LOG,         tag: 24 },
-  { label: 'Production',  admin: true,  panel: PANEL.PRODUCTION,  tag: 27 },
+  { label: 'Production',  admin: false, panel: PANEL.PRODUCTION,  tag: 27 },
   { label: 'Maintenance', admin: true,  panel: PANEL.MAINTENANCE, tag: 28 },
   { label: 'Settings',    admin: true,  panel: PANEL.SETTINGS,    tag: 29 },
   { label: 'Users',       admin: true,  panel: PANEL.USERS,       tag: 30 },
@@ -1505,19 +1504,15 @@ function handleTag(tag, now) {
   if (state.menuOpen) {
     const visible = getMenuVisible();
     const cnt = visible.length;
-    if (tag === 2) {
-      state.menuCursor = (state.menuCursor - 1 + cnt) % cnt;
-      /* ウィンドウ上端を超えたらスクロール */
+    if (tag === 2 && state.menuCursor > 0) {
+      /* カーソル UP（トップ止まり） */
+      state.menuCursor--;
       if (state.menuCursor < state.menuScroll) state.menuScroll = state.menuCursor;
-      /* 末尾へのラップ：スクロールを末尾に合わせる */
-      if (state.menuCursor === cnt - 1) state.menuScroll = Math.max(0, cnt - MENU_VIS);
     }
-    if (tag === 4) {
-      state.menuCursor = (state.menuCursor + 1) % cnt;
-      /* ウィンドウ下端を超えたらスクロール */
+    if (tag === 4 && state.menuCursor < cnt - 1) {
+      /* カーソル DOWN（ボトム止まり） */
+      state.menuCursor++;
       if (state.menuCursor >= state.menuScroll + MENU_VIS) state.menuScroll = state.menuCursor - MENU_VIS + 1;
-      /* 先頭へのラップ：スクロールをリセット */
-      if (state.menuCursor === 0) state.menuScroll = 0;
     }
     if (tag === 3) {
       state.panel = visible[state.menuCursor].panel;

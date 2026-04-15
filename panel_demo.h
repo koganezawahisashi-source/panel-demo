@@ -77,8 +77,8 @@
 #define COL_YELLOW  0xFBBF24UL
 #define COL_ORANGE  0xF97316UL
 #define COL_RED     0xF87171UL
-#define COL_TXT     0xE8EEF8UL
-#define COL_TXT2    0x8B9BBFUL
+#define COL_TXT     0xF2F6FFUL
+#define COL_TXT2    0xBDCBEAUL
 #define COL_TXT3    0x4A5A7AUL
 #define COL_WHITE   0xFFFFFFUL
 
