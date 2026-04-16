@@ -344,7 +344,30 @@ static void show_toast(AppState_t *app, const char *msg, uint32_t tick_ms)
 
 void panel_demo_load_fonts(EVE_HalContext *phost)
 {
-    /* STEP 1: Flash → RAM_G へ zlib展開転送
+    /* STEP 1: Flash を FULL（fast）モードに移行する
+     *
+     * CMD_INFLATE2+OPT_FLASH は FLASH_STATUS_FULL (=3) でないと動作しない。
+     * EVE_Util_bootupConfig() が fast 移行済みの場合はここで即リターンされる。
+     * 未移行の場合は CMD_FLASHFAST で移行を試みる。
+     */
+    uint32_t flash_status = EVE_Hal_rd32(phost, REG_FLASH_STATUS);
+    printf("[FONT] REG_FLASH_STATUS = %lu\n", flash_status);
+
+    if (flash_status < FLASH_STATUS_FULL) {
+        uint32_t fast_result = 0;
+        flash_status = EVE_CoCmd_flashFast(phost, &fast_result);
+        printf("[FONT] flashFast -> status=%lu result=0x%lx\n",
+               flash_status, fast_result);
+
+        if (flash_status != FLASH_STATUS_FULL) {
+            /* 0xE001: Flash未接続 / 0xE002: blob破損 / 0xE005: 配線不良 */
+            printf("[FONT] Flash not FULL (err=0x%lx) — ROM font fallback\n",
+                   fast_result);
+            return;
+        }
+    }
+
+    /* STEP 2: Flash → RAM_G へ zlib展開転送
      *
      * EVE Asset Builder の Flash Image Generator はデータを zlib 圧縮して格納する。
      * CMD_FLASHREAD は圧縮バイトをそのまま転送するだけなので使用してはならない。
@@ -358,7 +381,7 @@ void panel_demo_load_fonts(EVE_HalContext *phost)
         printf("[FONT] inflate_flash failed — ROM font fallback\n");
         return;
     }
-    printf("[FONT] inflate_flash OK (→ RAM_G+%lu)\n", FONT_RAM_G_BASE);
+    printf("[FONT] inflate_flash OK (-> RAM_G+%lu)\n", FONT_RAM_G_BASE);
 
     /* STEP 2: CMD_SETFONT2 でハンドルを登録
      *   handle    : FONT_SM (= 26)
