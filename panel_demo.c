@@ -344,20 +344,21 @@ static void show_toast(AppState_t *app, const char *msg, uint32_t tick_ms)
 
 void panel_demo_load_fonts(EVE_HalContext *phost)
 {
-    /* STEP 1: Flash → RAM_G へフォントデータを転送
-     *   src  : FONT_FLASH_OFFSET (64byte境界、Flash書き込み時のオフセットと一致)
-     *   dest : FONT_RAM_G_BASE   (RAM_G先頭)
-     *   num  : FONT_DATA_SIZE    (4の倍数)
-     * 転送完了まで待機する _flush バリアントを使用する */
-    if (!EVE_CoCmd_flashRead_flush(phost,
-                                   FONT_RAM_G_BASE,
-                                   FONT_FLASH_OFFSET,
-                                   FONT_DATA_SIZE)) {
-        printf("[FONT] Flash read failed — ROM font fallback\n");
+    /* STEP 1: Flash → RAM_G へ zlib展開転送
+     *
+     * EVE Asset Builder の Flash Image Generator はデータを zlib 圧縮して格納する。
+     * CMD_FLASHREAD は圧縮バイトをそのまま転送するだけなので使用してはならない。
+     * CMD_INFLATE2 + OPT_FLASH (= EVE_CoCmd_inflate_flash) を使い、
+     * Flash から読み出しながら RAM_G へ展開する。
+     *
+     *   src : FONT_FLASH_OFFSET  Flash 上の圧縮データ先頭 (64byte 境界)
+     *   dst : FONT_RAM_G_BASE    RAM_G 上の展開先
+     */
+    if (!EVE_CoCmd_inflate_flash(phost, FONT_RAM_G_BASE, FONT_FLASH_OFFSET)) {
+        printf("[FONT] inflate_flash failed — ROM font fallback\n");
         return;
     }
-    printf("[FONT] Flash read OK (%lu bytes → RAM_G+%lu)\n",
-           FONT_DATA_SIZE, FONT_RAM_G_BASE);
+    printf("[FONT] inflate_flash OK (→ RAM_G+%lu)\n", FONT_RAM_G_BASE);
 
     /* STEP 2: CMD_SETFONT2 でハンドルを登録
      *   handle    : FONT_SM (= 26)

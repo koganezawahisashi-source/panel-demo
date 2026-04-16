@@ -104,8 +104,8 @@
    ※ EVE Asset Builder 4.2.0 で変換・Flash書き込み済み
    ※ flash-817-default.map の値を参照して設定
 ───────────────────────────────────────────── */
-#define FONT_FLASH_OFFSET   4096UL  /* Flash上のフォントデータ開始位置（64byte境界） */
-#define FONT_DATA_SIZE      7376UL  /* フォントデータサイズ（4の倍数であること）     */
+#define FONT_FLASH_OFFSET   4096UL  /* Flash上の圧縮データ開始位置（64byte境界）     */
+/* FONT_DATA_SIZE 不要: inflate_flash は zlib ストリーム終端を自動検出する           */
 #define FONT_RAM_G_BASE     0UL     /* RAM_G上の展開先アドレス                       */
 
 /* ─────────────────────────────────────────────
