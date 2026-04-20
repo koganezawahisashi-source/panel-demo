@@ -3,9 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>BT817 Panel Simulator — 800x480</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://mcp.figma.com/mcp/html-to-design/capture.js" async></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -15,7 +13,7 @@
     align-items: center;
     justify-content: flex-start;
     min-height: 100vh;
-    font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+    font-family: 'Segoe UI', Arial, sans-serif;
     padding: 20px;
   }
   #info {
@@ -54,8 +52,15 @@ const BTN_Y = [0, 130, 260, 390];
 const CONT_X = BTN_W, CONT_W = W - 2 * BTN_W, RIGHT_X = W - BTN_W;
 const HDR_H  = 80;   /* 44 → 56 → 80 */
 
-/* フォントスケール（50cm視認距離対応） */
-const FONT_SCALE = 1.7;
+/* フォントスケール（BT817実ピクセル等倍） */
+const FONT_SCALE = 1.0;
+
+/* 疑似ボールドモード（BT817 ROMフォント オフセット重ね描き）
+ *   1 = SemiBold風: x+1 (2点)
+ *   2 = Bold風:     x+1, x+2 (3点)  ← 推奨
+ *   3 = ExtraBold風: (x,y)(x+1,y)(x,y+1)(x+1,y+1) (4点)
+ */
+const BOLD_STYLE = 2;
 
 const C = {
   BG:     '#080C14', SURF:   '#0F1623', CARD:   '#172032',
@@ -262,17 +267,32 @@ function vline(x, y, h, color, lw = 1) {
   ctx.beginPath(); ctx.moveTo(x + .5, y); ctx.lineTo(x + .5, y + h); ctx.stroke();
 }
 
-/* フォントスケールを適用 */
+/* フォントスケールを適用
+ * bold=true のとき CSS weight ではなく BT817 同様のオフセット重ね描きで疑似ボールド */
 function text(x, y, str, color, size = 13, align = 'left', baseline = 'middle', bold = false, mono = false) {
   ctx.fillStyle    = color;
-  const family = mono
-    ? '"JetBrains Mono", "Courier New", monospace'
-    : '"Inter", "Segoe UI", sans-serif';
-  const weight = bold ? (mono ? '700' : '600') : '400';
-  ctx.font         = `${weight} ${Math.round(size * FONT_SCALE)}px ${family}`;
+  const family = '"Segoe UI", Arial, sans-serif';
+  ctx.font         = `400 ${Math.round(size * FONT_SCALE)}px ${family}`;
   ctx.textAlign    = align;
   ctx.textBaseline = baseline;
-  ctx.fillText(str, x, y);
+  if (!bold) {
+    ctx.fillText(str, x, y);
+  } else if (BOLD_STYLE === 1) {
+    /* SemiBold: x+1 (2点) */
+    ctx.fillText(str, x,     y);
+    ctx.fillText(str, x + 1, y);
+  } else if (BOLD_STYLE === 2) {
+    /* Bold: x+1, x+2 (3点) */
+    ctx.fillText(str, x,     y);
+    ctx.fillText(str, x + 1, y);
+    ctx.fillText(str, x + 2, y);
+  } else {
+    /* ExtraBold: 4点 (水平+垂直) */
+    ctx.fillText(str, x,     y);
+    ctx.fillText(str, x + 1, y);
+    ctx.fillText(str, x,     y + 1);
+    ctx.fillText(str, x + 1, y + 1);
+  }
 }
 
 function bar(x, y, w, h, pct, fg) {
@@ -316,12 +336,12 @@ function chip(x, y, label, color) {
   ctx.fillStyle = color + '22'; ctx.fillRect(x, y, tw, 26);
   ctx.strokeStyle = color + '44'; ctx.lineWidth = 1;
   ctx.strokeRect(x + .5, y + .5, tw - 1, 25);
-  text(x + tw / 2, y + 13, label, color, 11, 'center');
+  text(x + tw / 2, y + 13, label, color, 15, 'center');
 }
 /* 長いテキストを最大2行に折り返して描画 */
 function textWrap2(x, y1, y2, str, color, size, maxW) {
   const scaledSize = Math.round(size * FONT_SCALE);
-  ctx.font = `400 ${scaledSize}px "Inter", "Segoe UI", sans-serif`;
+  ctx.font = `400 ${scaledSize}px "Segoe UI", Arial, sans-serif`;
   if (ctx.measureText(str).width <= maxW) {
     text(x, y1, str, color, size, 'left', 'middle');
     return;
@@ -383,7 +403,7 @@ function drawIconDown(bx, by) {
 /* ═══════════════════════════════════════════════
    右可変ボタン
 ═══════════════════════════════════════════════ */
-function drawRightBtn(idx, label, bgColor, enabled = true, fontSize = 14) {
+function drawRightBtn(idx, label, bgColor, enabled = true, fontSize = 24) {
   const y  = BTN_Y[idx];
   const bg = enabled ? bgColor : C.SURF;
   const fc = enabled ? C.TXT   : C.TXT3;
@@ -400,18 +420,18 @@ function renderHeader() {
   rect(CONT_X, 0, CONT_W, HDR_H, C.SURF);
   hline(CONT_X, HDR_H - 1, CONT_W, C.BORDER);
 
-  text(CONT_X + 12, HDR_H / 2, 'NCS', C.ACCENT, 14, 'left', 'middle', true);
+  text(CONT_X + 12, HDR_H / 2, 'NCS', C.ACCENT, 24, 'left', 'middle', true);
   vline(CONT_X + 76, 10, HDR_H - 20, C.BORDER);
-  text(CONT_X + 86, HDR_H / 2, 'CNC-8100S', C.TXT, 13, 'left', 'middle', true);
+  text(CONT_X + 86, HDR_H / 2, 'CNC-8100S', C.TXT, 22, 'left', 'middle', true);
 
   const stLabel = state.machine === MACHINE.RUNNING ? 'RUNNING' : 'STOPPED';
   const stCol   = state.machine === MACHINE.RUNNING ? C.GREEN   : C.RED;
   chip(CONT_X + 310, (HDR_H - 26) / 2, stLabel, stCol);
 
   const ts = `${p2(state.rtcH)}:${p2(state.rtcM)}:${p2(state.rtcS)}`;
-  text(RIGHT_X - 8, 10, state.userName,    C.TXT,  13, 'right', 'top');
-  text(RIGHT_X - 8, 36, state.userRoleStr, C.TXT2, 12, 'right', 'top');
-  text(RIGHT_X - 8, 60, ts,               C.TXT2, 13, 'right', 'top', false, true);
+  text(RIGHT_X - 8, 10, state.userName,    C.TXT2, 17, 'right', 'top');
+  text(RIGHT_X - 8, 36, state.userRoleStr, C.TXT2, 17, 'right', 'top');
+  text(RIGHT_X - 8, 60, ts,               C.TXT2, 17, 'right', 'top', false, true);
 
   /* アクティブアラームバッジ */
   const activeCount = state.alarms.filter(a => a.active).length;
@@ -419,7 +439,7 @@ function renderHeader() {
     const bx = CONT_X + 310 + 120;
     const by = (HDR_H - 22) / 2;
     rect(bx, by, 54, 22, C.RED);
-    text(bx + 27, by + 11, '\u26a0 ' + activeCount, C.WHITE, 11, 'center', 'middle', true);
+    text(bx + 27, by + 11, '\u26a0 ' + activeCount, C.WHITE, 15, 'center', 'middle', true);
   }
 }
 
@@ -445,15 +465,15 @@ function renderLock(now) {
 
   rect(cx - 28, cy - 28, 56, 56, C.CARD);
   strokeRect(cx - 28, cy - 28, 56, 56, C.BORDER);
-  text(cx, cy, 'ID', C.ACCENT, 18, 'center', 'middle', true);
+  text(cx, cy, 'ID', C.ACCENT, 31, 'center', 'middle', true);
 
-  text(cx, 52, 'NEXUS CONTROL SYSTEMS', C.TXT2, 13, 'center');
-  text(cx, cy + 96, 'Present RFID card  —  or select role \u2192', C.TXT2, 13, 'center');
+  text(cx, 52, 'NEXUS CONTROL SYSTEMS', C.TXT2, 22, 'center');
+  text(cx, cy + 96, 'Present RFID card  —  or select role \u2192', C.TXT2, 22, 'center');
 
   const ts = `${p2(state.rtcH)}:${p2(state.rtcM)}:${p2(state.rtcS)}`;
-  text(cx, H - 58, ts, C.TXT, 36, 'center', 'middle', false, true);
+  text(cx, H - 58, ts, C.TXT, 37, 'center', 'middle', false, true);
   const dateStr = state.rtcYear + '/' + p2(state.rtcMon) + '/' + p2(state.rtcDay);
-  text(cx, H - 20, dateStr, C.TXT2, 13, 'center');
+  text(cx, H - 20, dateStr, C.TXT2, 22, 'center');
 
   drawRightBtn(0, 'OPR', state.lockCursor === 0 ? C.ACCENT : C.CARD, true);
   drawRightBtn(1, 'ADM', state.lockCursor === 1 ? C.ACCENT : C.CARD, true);
@@ -480,7 +500,7 @@ function renderAuth(now) {
     strokeRect(cx + dx - 10, cy - 38, 20, 20, C.BORDER);
   });
 
-  text(cx, cy + 16, 'Authenticating...', C.TXT2, 14, 'center');
+  text(cx, cy + 16, 'Authenticating...', C.TXT2, 24, 'center');
 }
 
 /* ═══════════════════════════════════════════════
@@ -520,9 +540,9 @@ function renderAuthNotif(now) {
   ctx.beginPath(); ctx.moveTo(cx - 11, cy); ctx.lineTo(cx - 3, cy + 9); ctx.lineTo(cx + 12, cy - 10); ctx.stroke();
   /* テキスト */
   const tx = CONT_X + 110;
-  text(tx, offsetY + 28, 'Authentication Successful', C.GREEN, 13, 'left', 'middle', true);
-  text(tx, offsetY + 60, state.authNotifName, C.TXT,  18, 'left', 'middle', true);
-  text(tx, offsetY + 94, state.authNotifRole, C.TXT2, 13, 'left', 'middle');
+  text(tx, offsetY + 28, 'Authentication Successful', C.GREEN, 22, 'left', 'middle', true);
+  text(tx, offsetY + 60, state.authNotifName, C.TXT,  31, 'left', 'middle', true);
+  text(tx, offsetY + 94, state.authNotifRole, C.TXT2, 22, 'left', 'middle');
 
   ctx.restore();
 }
@@ -565,38 +585,38 @@ function renderAlarmDetail(now) {
   const lvlLabel = al.level.toUpperCase();
   rect(CONT_X + 14, py + 16, 68, 28, lc + '33');
   strokeRect(CONT_X + 14, py + 16, 68, 28, lc, 1);
-  text(CONT_X + 48,          py + 30, lvlLabel,  lc,    12, 'center', 'middle', true);
-  text(CONT_X + 94,          py + 30, al.title,  C.TXT, 15, 'left',   'middle', true);
+  text(CONT_X + 48,          py + 30, lvlLabel,  lc,    20, 'center', 'middle', true);
+  text(CONT_X + 94,          py + 30, al.title,  C.TXT, 22, 'left',   'middle', true);
   const stLabel = al.active ? 'ACTIVE' : 'RESET';
   const stCol   = al.active ? C.RED    : C.GREEN;
   rect(CONT_X + CONT_W - 90, py + 16, 76, 28, stCol + '33');
   strokeRect(CONT_X + CONT_W - 90, py + 16, 76, 28, stCol, 1);
-  text(CONT_X + CONT_W - 52, py + 30, stLabel, stCol, 12, 'center', 'middle', true);
+  text(CONT_X + CONT_W - 52, py + 30, stLabel, stCol, 20, 'center', 'middle', true);
 
   hline(CONT_X + 14, py + 58, DW, C.BORDER);
 
   /* ─── 詳細テキスト（2行折り返し対応、常に2行分の高さを確保） ─── */
-  text(CONT_X + 14, py + 74, 'Detail', C.TXT2, 10, 'left', 'middle', true);
-  textWrap2(CONT_X + 14, py + 96, py + 124, al.detail, C.TXT2, 12, DW);
+  text(CONT_X + 14, py + 74, 'Detail', C.TXT2, 17, 'left', 'middle', true);
+  textWrap2(CONT_X + 14, py + 96, py + 124, al.detail, C.TXT2, 20, DW);
 
   hline(CONT_X + 14, py + 148, DW, C.BORDER);
 
   /* ─── メタ情報 ─── */
   const LX = CONT_X + 14, VX = CONT_X + 180;
-  text(LX, py + 168, 'Time',      C.TXT2, 11, 'left', 'middle', true);
-  text(VX, py + 168, al.time,     C.TXT,  11, 'left', 'middle');
-  text(LX, py + 198, 'Level',     C.TXT2, 11, 'left', 'middle', true);
-  text(VX, py + 198, al.level.charAt(0).toUpperCase() + al.level.slice(1), lc, 11, 'left', 'middle', true);
-  text(LX, py + 228, 'Reset Auth',C.TXT2, 11, 'left', 'middle', true);
+  text(LX, py + 168, 'Time',      C.TXT2, 19, 'left', 'middle', true);
+  text(VX, py + 168, al.time,     C.TXT,  19, 'left', 'middle');
+  text(LX, py + 198, 'Level',     C.TXT2, 19, 'left', 'middle', true);
+  text(VX, py + 198, al.level.charAt(0).toUpperCase() + al.level.slice(1), lc, 19, 'left', 'middle', true);
+  text(LX, py + 228, 'Reset Auth',C.TXT2, 19, 'left', 'middle', true);
   text(VX, py + 228, al.adminOnly ? 'Admin only' : 'Any user',
-       al.adminOnly ? C.YELLOW : C.TXT2, 11, 'left', 'middle');
-  text(LX, py + 258, 'Status',    C.TXT2, 11, 'left', 'middle', true);
-  text(VX, py + 258, stLabel,     stCol,  11, 'left', 'middle', true);
+       al.adminOnly ? C.YELLOW : C.TXT2, 19, 'left', 'middle');
+  text(LX, py + 258, 'Status',    C.TXT2, 19, 'left', 'middle', true);
+  text(VX, py + 258, stLabel,     stCol,  19, 'left', 'middle', true);
 
   hline(CONT_X + 14, py + 282, DW, C.BORDER);
 
   /* ─── フッタヒント ─── */
-  text(CONT_X + CONT_W / 2, py + 310, '[ DTL ] to close', C.TXT2, 10, 'center', 'middle');
+  text(CONT_X + CONT_W / 2, py + 310, '[ DTL ] to close', C.TXT2, 17, 'center', 'middle');
 
   ctx.restore();
 }
@@ -621,70 +641,70 @@ function renderHome() {
 
   /* Card A: 機械状態 */
   card(xA, y1, wA, h1);
-  text(xA + 8,     y1 + 8,  'MACHINE', C.TXT2, 10, 'left', 'top');
+  text(xA + 8,     y1 + 8,  'MACHINE', C.TXT2, 15, 'left', 'top');
   { const st = state.machine === MACHINE.RUNNING ? 'RUN' : 'STP';
     const sc = state.machine === MACHINE.RUNNING ? C.GREEN : C.RED;
-    text(xA + wA/2, y1 + 56, st, sc, 28, 'center', 'middle', true); }
+    text(xA + wA/2, y1 + 56, st, sc, 37, 'center', 'middle', true); }
 
   /* Card B: スピンドルRPM */
   card(xB, y1, wB, h1);
-  text(xB + 8,     y1 + 8,  'SPINDLE RPM', C.TXT2, 10, 'left', 'top');
-  text(xB + wB/2,  y1 + 54, state.actualRpm + '', C.TXT, 28, 'center', 'middle', false, true);
-  text(xB + wB/2,  y1 + 90, 'Set:' + state.setRpm, C.TXT2, 10, 'center', 'bottom');
+  text(xB + 8,     y1 + 8,  'SPINDLE RPM', C.TXT2, 15, 'left', 'top');
+  text(xB + wB/2,  y1 + 54, state.actualRpm + '', C.TXT, 37, 'center', 'middle', false, true);
+  text(xB + wB/2,  y1 + 90, 'Set:' + state.setRpm, C.TXT2, 13, 'center', 'bottom');
 
   /* Card C: バッチ進捗 弧グラフ */
   card(xC, y1, wC, h1);
-  text(xC + 8, y1 + 8, 'BATCH', C.TXT2, 10, 'left', 'top');
+  text(xC + 8, y1 + 8, 'BATCH', C.TXT2, 15, 'left', 'top');
   { const totalComp = state.workPrograms.reduce((s,p)=>s+p.completed,0);
     const totalTgt  = state.workPrograms.reduce((s,p)=>s+p.target,0);
     const pct = totalTgt > 0 ? Math.round(totalComp * 100 / totalTgt) : 0;
     const arcCx = xC + 100, arcCy = y1 + h1/2 + 4;
-    drawArc(arcCx, arcCy, 36, C.BG, C.GREEN, 6, pct);
-    text(arcCx, arcCy, pct + '%', C.TXT, 10, 'center', 'middle');
+    drawArc(arcCx, arcCy, 36, C.BORDER, C.GREEN, 3, pct);
+    text(arcCx, arcCy, pct + '%', C.TXT, 15, 'center', 'middle');
     const rx = arcCx + 46;
-    text(rx, arcCy - 10, totalComp + '/' + totalTgt, C.TXT, 13, 'left', 'middle');
-    text(rx, arcCy + 14, 'parts', C.TXT2, 10, 'left', 'middle'); }
+    text(rx, arcCy - 10, totalComp + '/' + totalTgt, C.TXT, 19, 'left', 'middle');
+    text(rx, arcCy + 14, 'parts', C.TXT2, 17, 'left', 'middle'); }
 
   /* ── 行2 カード D/E ── */
   const wD = 296, xD = ix, xE = xD + wD + 4, wE = ix + iw - xE;
 
   /* Card D: 加工時間 弧グラフ */
   card(xD, y2, wD, h2);
-  text(xD + 8, y2 + 8, 'WORKPIECE TIME', C.TXT2, 10, 'left', 'top');
+  text(xD + 8, y2 + 8, 'WORKPIECE TIME', C.TXT2, 15, 'left', 'top');
   { const pct = state.pieceTimeEst > 0 ? Math.round(state.pieceTimeElap * 100 / state.pieceTimeEst) : 0;
     const arcCx = xD + 110, arcCy = y2 + 92;
-    drawArc(arcCx, arcCy, 58, C.BG, C.ACCENT, 8, pct);
-    text(arcCx, arcCy, pct + '%', C.TXT, 16, 'center', 'middle');
+    drawArc(arcCx, arcCy, 58, C.BORDER, C.ACCENT, 3, pct);
+    text(arcCx, arcCy, pct + '%', C.TXT, 19, 'center', 'middle');
     const tx = arcCx + 68;
-    text(tx, arcCy - 32, 'Est:',           C.TXT2,   10, 'left', 'middle');
-    text(tx, arcCy - 12, fmtMMSS(state.pieceTimeEst),  C.TXT,    13, 'left', 'middle');
-    text(tx, arcCy + 18, 'Elap:',          C.TXT2,   10, 'left', 'middle');
-    text(tx, arcCy + 38, fmtMMSS(state.pieceTimeElap), C.ACCENT, 13, 'left', 'middle'); }
+    text(tx, arcCy - 32, 'Est:',           C.TXT2,   17, 'left', 'middle');
+    text(tx, arcCy - 12, fmtMMSS(state.pieceTimeEst),  C.TXT,    19, 'left', 'middle');
+    text(tx, arcCy + 18, 'Elap:',          C.TXT2,   17, 'left', 'middle');
+    text(tx, arcCy + 38, fmtMMSS(state.pieceTimeElap), C.ACCENT, 19, 'left', 'middle'); }
 
   /* Card E: W1/W2/W3 横棒グラフ */
   card(xE, y2, wE, h2);
-  text(xE + 8, y2 + 8, 'PROGRAMS', C.TXT2, 10, 'left', 'top');
+  text(xE + 8, y2 + 8, 'PROGRAMS', C.TXT2, 15, 'left', 'top');
   { const pCols = [C.ACCENT, C.TEAL, C.GREEN];
     state.workPrograms.forEach((wp, i) => {
       const ry  = y2 + 32 + i * 46;
       const pct = wp.target > 0 ? Math.round(wp.completed * 100 / wp.target) : 0;
-      text(xE + 8, ry + 8, wp.name, C.TXT, 10, 'left', 'top');
-      bar(xE + 8, ry + 22, wE - 70, 12, pct, pCols[i]);
-      text(xE + wE - 6, ry + 28, wp.completed + '/' + wp.target, C.TXT2, 10, 'right', 'middle');
+      text(xE + 8, ry + 4, wp.name, C.TXT, 17, 'left', 'top');
+      bar(xE + 8, ry + 26, wE - 70, 12, pct, pCols[i]);
+      text(xE + wE - 6, ry + 32, wp.completed + '/' + wp.target, C.TXT2, 15, 'right', 'middle');
     }); }
 
   /* ── 行3: 直近アラーム ── */
   card(ix, y3, iw, h3);
-  text(ix + 8, y3 + 8, 'RECENT ALARMS', C.TXT, 11, 'left', 'top', true);
+  text(ix + 8, y3 + 8, 'RECENT ALARMS', C.TXT, 15, 'left', 'top', true);
   state.alarms.filter(al => al.active).slice(0, 3).forEach((al, i) => {
     const lc = al.level === 'error' ? C.RED : al.level === 'warn' ? C.YELLOW : C.ACCENT;
     const ay = y3 + 44 + i * 24;
-    text(ix + 8,  ay, '▶', lc, 10, 'left', 'middle');
-    text(ix + 22, ay, al.title, C.TXT, 10, 'left', 'middle');
+    text(ix + 8,  ay, '▶', lc, 15, 'left', 'middle');
+    text(ix + 22, ay, al.title, C.TXT, 15, 'left', 'middle');
     const tp = al.time.split(' ');
     const ds = tp[0] ? tp[0].slice(5).replace('-', '/') : '';
     const ts = tp[1] ? tp[1].slice(0,5) : '';
-    text(CONT_X + CONT_W - 24, ay, ds + ' ' + ts, C.TXT2, 10, 'right', 'middle');
+    text(CONT_X + CONT_W - 24, ay, ds + ' ' + ts, C.TXT2, 15, 'right', 'middle');
   });
 
   drawRightBtn(0, 'OPER',  C.CARD);
@@ -698,7 +718,7 @@ function renderHome() {
 ═══════════════════════════════════════════════ */
 function renderOperation() {
   let y = HDR_H + 12;
-  text(CONT_X + 8, y + 12, 'Operation', C.TXT, 17, 'left', 'top', true);
+  text(CONT_X + 8, y + 12, 'Operation', C.TXT, 29, 'left', 'top', true);
   y += 52;
 
   const lw = Math.floor(CONT_W * 0.55);
@@ -717,11 +737,14 @@ function renderOperation() {
   /* 選択ハイライト（左アクセントバーのみ、枠線なし） */
   const selReg = SEL_REGIONS[state.operCursor];
   const isEd   = state.operEditing;
-  rect(CONT_X + 8, selReg.y0, lw, selReg.h, isEd ? '#0d2e50' : '#1a3a5c');
-  rect(CONT_X + 8, selReg.y0, 6,  selReg.h, isEd ? C.ACCENT  : '#4F8EF7');
+  /* ブラウズ=青系、編集モード=グリーン系 */
+  const edBg   = '#153d28';   /* 編集中 背景：ミディアムグリーン */
+  const edBar  = '#6ee7b7';   /* 編集中 左バー：ライトグリーン */
+  rect(CONT_X + 8, selReg.y0, lw, selReg.h, isEd ? edBg  : '#1a3a5c');
+  rect(CONT_X + 8, selReg.y0, 6,  selReg.h, isEd ? edBar : '#4F8EF7');
   /* 右端 ▶ インジケーター */
   text(CONT_X + 8 + lw - 18, selReg.y0 + selReg.h / 2, '\u25b6',
-       isEd ? C.ACCENT : '#4F8EF7', 10, 'right', 'middle');
+       isEd ? edBar : '#4F8EF7', 17, 'right', 'middle');
 
   /* セクション区切り線 */
   hline(CONT_X + 16, y + 72,  lw - 24, C.BORDER);
@@ -732,50 +755,50 @@ function renderOperation() {
   const stCol = state.machine === MACHINE.RUNNING ? C.GREEN   : C.RED;
 
   /* Region 0: Machine Control (h=72) */
-  text(CONT_X + 16, y + 12, 'MACHINE CONTROL', C.TXT2, 10, 'left', 'top');
-  text(CONT_X + 16, y + 40, stStr, stCol, 16, 'left', 'middle', true);
+  text(CONT_X + 16, y + 12, 'MACHINE CONTROL', C.TXT2, 17, 'left', 'top');
+  text(CONT_X + 16, y + 40, stStr, stCol, 27, 'left', 'middle', true);
 
   /* Region 1: RPM (starts y+72, h=92) */
-  text(CONT_X + 16, y + 80,  'SET: ' + state.setRpm + ' RPM',    C.TXT,  13, 'left', 'top', true);
-  text(CONT_X + 16, y + 102, 'ACT: ' + state.actualRpm + ' RPM', C.TXT2, 11, 'left', 'top');
+  text(CONT_X + 16, y + 80,  'SET: ' + state.setRpm + ' RPM',    C.TXT,  22, 'left', 'top', true);
+  text(CONT_X + 16, y + 102, 'ACT: ' + state.actualRpm + ' RPM', C.TXT2, 19, 'left', 'top');
   const rpmMin = state.settingsParams.minRpm;
   const rpmMax = state.settingsParams.maxRpm;
   const rpmRange = rpmMax - rpmMin || 1;
   const rpmPct = Math.round(Math.max(0, state.setRpm - rpmMin) * 100 / rpmRange);
   bar(CONT_X + 16, y + 124, lw - 32, 10, rpmPct, rpmColor(state.setRpm));
-  text(CONT_X + 16,                  y + 140, rpmMin + '',                            C.TXT2, 10, 'left',   'top');
-  text(CONT_X + 16 + (lw - 32) / 2, y + 140, Math.round((rpmMin + rpmMax) / 2) + '', C.TXT2, 10, 'center', 'top');
-  text(CONT_X + lw - 16,            y + 140, rpmMax + '',                             C.TXT2, 10, 'right',  'top');
+  text(CONT_X + 16,                  y + 140, rpmMin + '',                            C.TXT2, 17, 'left',   'top');
+  text(CONT_X + 16 + (lw - 32) / 2, y + 140, Math.round((rpmMin + rpmMax) / 2) + '', C.TXT2, 17, 'center', 'top');
+  text(CONT_X + lw - 16,            y + 140, rpmMax + '',                             C.TXT2, 17, 'right',  'top');
 
   /* Region 2: Feed Rate (starts y+164, h=80) */
   const fv = getFeedVals();
-  text(CONT_X + 16, y + 174, 'FEED RATE', C.TXT2, 10, 'left', 'top');
+  text(CONT_X + 16, y + 174, 'FEED RATE', C.TXT2, 17, 'left', 'top');
   fv.forEach((val, i) => {
     const fx     = CONT_X + 16 + i * 62;
     const sel    = state.feedIdx === i;
     const is100  = val === 100;
     const selCol = sel ? (is100 ? C.GREEN : C.ACCENT) : C.CARD2;
     rect(fx, y + 192, 56, 28, selCol);
-    text(fx + 28, y + 206, val + '%', sel ? C.WHITE : C.TXT2, 12, 'center');
+    text(fx + 28, y + 206, val + '%', sel ? C.WHITE : C.TXT2, 20, 'center');
   });
 
   /* Spindle Load (starts y+244, h=80) */
-  text(CONT_X + 16, y + 252, 'SPINDLE LOAD', C.TXT2, 10, 'left', 'top');
+  text(CONT_X + 16, y + 252, 'SPINDLE LOAD', C.TXT2, 17, 'left', 'top');
   bar(CONT_X + 16, y + 270, lw - 32, 14, state.spindleLoad, C.TEAL);
-  text(CONT_X + 16 + (lw - 32) / 2, y + 294, state.spindleLoad + '%', C.TXT, 11, 'center');
+  text(CONT_X + 16 + (lw - 32) / 2, y + 294, state.spindleLoad + '%', C.TXT, 19, 'center');
 
   /* ヒントテキスト */
   if (isEd) {
-    text(CONT_X + 16, y + lh - 10, 'OK \u2192 Confirm', C.TXT2, 10, 'left', 'bottom');
+    text(CONT_X + 16, y + lh - 10, 'OK \u2192 Confirm', C.TXT2, 17, 'left', 'bottom');
   } else {
-    text(CONT_X + 16, y + lh - 10, '\u2191\u2193 Select   OK = Edit', C.TXT2, 10, 'left', 'bottom');
+    text(CONT_X + 16, y + lh - 10, '\u2191\u2193 Select   OK = Edit', C.TXT2, 17, 'left', 'bottom');
   }
 
   /* 右カード上：ステータス */
   const rx = CONT_X + 8 + lw + 8;
   const rh = Math.floor((lh - 8) / 2);
   card(rx, y, rw, rh);
-  text(rx + 8, y + 10, 'CURRENT STATUS', C.TXT, 12, 'left', 'top', true);
+  text(rx + 8, y + 10, 'CURRENT STATUS', C.TXT, 20, 'left', 'top', true);
 
   const opSec = state.opSeconds;
   [
@@ -787,24 +810,24 @@ function renderOperation() {
     ['Run Time',     `${p2(Math.floor(opSec/3600))}:${p2(Math.floor((opSec%3600)/60))}:${p2(opSec%60)}`, C.TXT],
   ].forEach(([k, v, vc], i) => {
     const ry = y + 32 + i * 22;
-    text(rx + 8,      ry, k, C.TXT2, 10, 'left',  'top');
-    text(rx + rw - 8, ry, v, vc,     10, 'right', 'top');
+    text(rx + 8,      ry, k, C.TXT2, 17, 'left',  'top');
+    text(rx + rw - 8, ry, v, vc,     17, 'right', 'top');
   });
 
   /* 右カード下：温度 */
   const ty = y + rh + 8;
   card(rx, ty, rw, rh);
-  text(rx + 8, ty + 10, 'TEMPERATURE', C.TXT, 12, 'left', 'top', true);
+  text(rx + 8, ty + 10, 'TEMPERATURE', C.TXT, 20, 'left', 'top', true);
   [['Spindle', state.spindleTemp], ['Coolant', state.coolantTemp], ['Ambient', state.envTemp]].forEach(([k, v], i) => {
     const ry = ty + 32 + i * 24;
-    text(rx + 8,      ry, k, C.TXT2, 10, 'left', 'top');
-    text(rx + rw - 8, ry, v + '\u00b0C', v > 60 ? C.YELLOW : C.TXT, 10, 'right', 'top');
+    text(rx + 8,      ry, k, C.TXT2, 17, 'left', 'top');
+    text(rx + rw - 8, ry, v + '\u00b0C', v > 60 ? C.YELLOW : C.TXT, 17, 'right', 'top');
   });
 
   /* 右ボタン：編集中のみ +/- を表示 */
   if (isEd) {
-    drawRightBtn(0, '+', C.ACCENT, true, 26);
-    drawRightBtn(1, '-', C.CARD,   true, 26);
+    drawRightBtn(0, '+', C.ACCENT, true, 44);
+    drawRightBtn(1, '-', C.CARD,   true, 44);
     drawRightBtn(2, '',  C.SURF,  false);
     drawRightBtn(3, '',  C.SURF,  false);
   } else {
@@ -817,7 +840,7 @@ function renderOperation() {
 ═══════════════════════════════════════════════ */
 function renderAlarm() {
   let y = HDR_H + 12;
-  text(CONT_X + 8, y + 12, 'Alarms', C.TXT, 17, 'left', 'top', true);
+  text(CONT_X + 8, y + 12, 'Alarms', C.TXT, 29, 'left', 'top', true);
   y += 52;
 
   /* フィルタタブ */
@@ -826,7 +849,7 @@ function renderAlarm() {
   tabs.forEach((t, i) => {
     const sel = state.alarmFilter === filters[i];
     rect(CONT_X + 8 + i * 74, y, 68, 30, sel ? C.ACCENT : C.CARD2);
-    text(CONT_X + 8 + i * 74 + 34, y + 15, t, sel ? C.WHITE : C.TXT2, 12, 'center');
+    text(CONT_X + 8 + i * 74 + 34, y + 15, t, sel ? C.WHITE : C.TXT2, 20, 'center');
   });
   y += 38;
 
@@ -847,7 +870,7 @@ function renderAlarm() {
   /* スクロール表示件数インジケータ */
   if (filtered.length > 0) {
     const end = Math.min(state.alarmScroll + visAl, filtered.length);
-    text(RIGHT_X - 8, HDR_H + 20, `${state.alarmScroll + 1}-${end}/${filtered.length}`, C.TXT2, 10, 'right', 'top');
+    text(RIGHT_X - 8, HDR_H + 20, `${state.alarmScroll + 1}-${end}/${filtered.length}`, C.TXT2, 17, 'right', 'top');
   }
   filtered.slice(state.alarmScroll, state.alarmScroll + visAl).forEach(({ al, i }, row) => {
     const lc  = al.level === 'error' ? C.RED : al.level === 'warn' ? C.YELLOW : C.ACCENT;
@@ -858,17 +881,17 @@ function renderAlarm() {
     strokeRect(CONT_X + 8, ay, CONT_W - 16, rh, sel ? C.ACCENT : C.BORDER, sel ? 2 : 1);
     rect(CONT_X + 8, ay, 6, rh, sel ? lc : lc + '88');
     /* 行1：タイトル（左）＋ ACTIVE/RESET バッジ（右） */
-    text(CONT_X + 20, ay + 14, al.title, C.TXT, 12, 'left', 'middle', true);
+    text(CONT_X + 20, ay + 14, al.title, C.TXT, 20, 'left', 'middle', true);
     const stLabel = al.active ? 'ACTIVE' : 'RESET';
     const stCol   = al.active ? lc       : C.TXT3;
-    text(CONT_X + CONT_W - 24, ay + 14, stLabel, stCol, 10, 'right', 'middle', al.active);
+    text(CONT_X + CONT_W - 24, ay + 14, stLabel, stCol, 17, 'right', 'middle', al.active);
     /* 行2：レベル色ドット（既読はグレー） ＋ 日時 */
     ctx.fillStyle = al.viewed ? C.TXT3 : lc;
     ctx.beginPath(); ctx.arc(CONT_X + 23, ay + 44, 4, 0, Math.PI * 2); ctx.fill();
-    text(CONT_X + 34, ay + 44, al.time, C.TXT2, 10, 'left', 'middle');
+    text(CONT_X + 34, ay + 44, al.time, C.TXT2, 17, 'left', 'middle');
   });
   if (filtered.length === 0) {
-    text(CONT_X + CONT_W / 2, y + 50, 'No alarms', C.TXT2, 14, 'center');
+    text(CONT_X + CONT_W / 2, y + 50, 'No alarms', C.TXT2, 24, 'center');
   }
 
   const canReset  = state.role === ROLE.ADMIN;
@@ -888,7 +911,7 @@ const LOG_TAB_W  = 82, LOG_TAB_GAP = 4;
 
 function renderLog() {
   let y = HDR_H + 12;
-  text(CONT_X + 8, y + 12, 'Operation Log', C.TXT, 17, 'left', 'top', true);
+  text(CONT_X + 8, y + 12, 'Operation Log', C.TXT, 29, 'left', 'top', true);
   y += 52;
 
   /* カテゴリタブ */
@@ -901,15 +924,15 @@ function renderLog() {
     rect(tx, y, LOG_TAB_W, 30, sel ? C.ACCENT : (disabled ? C.BG : C.CARD2));
     strokeRect(tx, y, LOG_TAB_W, 30, sel ? C.ACCENT : C.BORDER);
     text(tx + LOG_TAB_W / 2, y + 15, lbl,
-         sel ? C.WHITE : (disabled ? C.TXT3 : C.TXT2), 10, 'center', 'middle', !sel);
+         sel ? C.WHITE : (disabled ? C.TXT3 : C.TXT2), 17, 'center', 'middle', !sel);
   });
   y += 38;
 
   /* カラムヘッダ */
   rect(CONT_X + 8, y, CONT_W - 16, 30, C.SURF);
-  text(CONT_X + 16,  y + 6, 'TIME',  C.TXT2, 10, 'left', 'top');
-  text(CONT_X + 130, y + 6, 'USER',  C.TXT2, 10, 'left', 'top');
-  text(CONT_X + 260, y + 6, 'EVENT', C.TXT2, 10, 'left', 'top');
+  text(CONT_X + 16,  y + 6, 'TIME',  C.TXT2, 17, 'left', 'top');
+  text(CONT_X + 130, y + 6, 'USER',  C.TXT2, 17, 'left', 'top');
+  text(CONT_X + 260, y + 6, 'EVENT', C.TXT2, 17, 'left', 'top');
   y += 34;
 
   /* フィルタ */
@@ -928,7 +951,7 @@ function renderLog() {
   /* スクロール位置インジケータ */
   if (filteredLog.length > 0) {
     const end = Math.min(start + visibleCount, filteredLog.length);
-    text(RIGHT_X - 8, HDR_H + 12 + 14, `${start + 1}-${end}/${filteredLog.length}`, C.TXT2, 10, 'right', 'top');
+    text(RIGHT_X - 8, HDR_H + 12 + 14, `${start + 1}-${end}/${filteredLog.length}`, C.TXT2, 17, 'right', 'top');
   }
 
   filteredLog.slice(start, start + visibleCount).forEach((l, i) => {
@@ -936,12 +959,12 @@ function renderLog() {
     const lc  = l.cat === 'alarm' ? C.YELLOW : l.cat === 'login' ? C.ACCENT :
                 l.cat === 'settings' || l.cat === 'user' ? C.TEAL : C.TXT;
     if (i % 2 === 0) rect(CONT_X + 8, ly, CONT_W - 16, ROW_H - 1, C.CARD);
-    text(CONT_X + 16,  ly + 8, l.time,  C.TXT2, 10, 'left', 'top');
-    text(CONT_X + 130, ly + 8, l.user,  C.TXT2, 10, 'left', 'top');
-    text(CONT_X + 260, ly + 8, l.event, lc,     10, 'left', 'top');
+    text(CONT_X + 16,  ly + 8, l.time,  C.TXT2, 17, 'left', 'top');
+    text(CONT_X + 130, ly + 8, l.user,  C.TXT2, 17, 'left', 'top');
+    text(CONT_X + 260, ly + 8, l.event, lc,     17, 'left', 'top');
   });
   if (filteredLog.length === 0) {
-    text(CONT_X + CONT_W / 2, y + 40, 'No records', C.TXT2, 13, 'center');
+    text(CONT_X + CONT_W / 2, y + 40, 'No records', C.TXT2, 22, 'center');
   }
 
   drawRightBtn(0, 'FEED', C.CARD);
@@ -955,8 +978,8 @@ const SETT_ROW_H = 50;
 
 function renderSettings() {
   let y = HDR_H + 12;
-  text(CONT_X + 8,          y + 12, 'Settings',     C.TXT,    17, 'left',  'top', true);
-  text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]', C.YELLOW, 12, 'right', 'top');
+  text(CONT_X + 8,          y + 12, 'Settings',     C.TXT,    29, 'left',  'top', true);
+  text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]', C.YELLOW, 20, 'right', 'top');
   y += 52;
 
   const hw    = Math.floor((CONT_W - 24) / 2);
@@ -964,7 +987,7 @@ function renderSettings() {
 
   /* --- Operation Parameters --- */
   card(CONT_X + 8, y, hw, cardH);
-  text(CONT_X + 16, y + 8, 'Operation Parameters', C.TXT, 12, 'left', 'top', true);
+  text(CONT_X + 16, y + 8, 'Operation Parameters', C.TXT, 20, 'left', 'top', true);
 
   const p = state.settingsParams;
   const feedPatternLabel = p.feedPattern === 0 ? 'Pattern 1 (4-step)' : 'Pattern 2 (2-step)';
@@ -978,36 +1001,38 @@ function renderSettings() {
     const ry  = y + 34 + i * SETT_ROW_H;
     const sel = state.settingsCursor === i;
     const ed  = sel && state.settingsEditing;
-    /* 行ハイライト：非選択=暗め / 選択=明るい青 / 編集中=さらに強調 */
+    /* 行ハイライト：非選択=暗め / 選択=青 / 編集中=グリーン */
+    const edBg2  = '#153d28';
+    const edBar2 = '#6ee7b7';
     rect(CONT_X + 8, ry, hw, SETT_ROW_H,
-         ed ? '#0d2e50' : sel ? '#1a3a5c' : (i % 2 === 0 ? C.CARD : C.BG));
-    hline(CONT_X + 16, ry, hw - 24, ed ? C.ACCENT + '66' : C.BORDER);
+         ed ? edBg2 : sel ? '#1a3a5c' : (i % 2 === 0 ? C.CARD : C.BG));
+    hline(CONT_X + 16, ry, hw - 24, ed ? edBar2 + '66' : C.BORDER);
     /* 左サイドバー */
-    rect(CONT_X + 8, ry, 6, SETT_ROW_H, ed ? C.ACCENT : sel ? '#4F8EF7' : C.BORDER);
-    text(CONT_X + 22, ry + 14, k, ed ? C.WHITE : sel ? C.TXT : C.TXT2, 11, 'left', 'top', sel);
+    rect(CONT_X + 8, ry, 6, SETT_ROW_H, ed ? edBar2 : sel ? '#4F8EF7' : C.BORDER);
+    text(CONT_X + 22, ry + 14, k, ed ? '#6ee7b7' : sel ? C.TXT : C.TXT2, 19, 'left', 'top', sel);
     text(CONT_X + 8 + hw - 10, ry + 14, v,
-         ed ? C.ACCENT : sel ? C.WHITE : C.TXT, 12, 'right', 'top', sel);
+         ed ? '#6ee7b7' : sel ? C.WHITE : C.TXT, 20, 'right', 'top', sel);
   });
 
   /* --- System Info --- */
   const rx = CONT_X + 8 + hw + 8;
   card(rx, y, hw, cardH);
-  text(rx + 8, y + 8, 'System', C.TXT, 12, 'left', 'top', true);
+  text(rx + 8, y + 8, 'System', C.TXT, 20, 'left', 'top', true);
   [['Panel ID','CNC-7800'],['FW Version','v2.1.0'],['Display','800\u00d7480'],['Network','192.168.1.10']].forEach(([k, v], i) => {
     const ry = y + 34 + i * SETT_ROW_H;
     hline(rx + 8, ry, hw - 24, C.BORDER);
-    text(rx + 8,       ry + 12, k, C.TXT2, 11, 'left',  'top');
-    text(rx + hw - 10, ry + 12, v, C.TXT,  11, 'right', 'top');
+    text(rx + 8,       ry + 12, k, C.TXT2, 19, 'left',  'top');
+    text(rx + hw - 10, ry + 12, v, C.TXT,  19, 'right', 'top');
   });
 
   /* 操作ヒント */
   if (!state.settingsEditing) {
-    text(CONT_X + 16, y + cardH + 10, '\u2191\u2193 Select   OK = Edit', C.TXT2, 10, 'left', 'top');
+    text(CONT_X + 16, y + cardH + 10, '\u2191\u2193 Select   OK = Edit', C.TXT2, 17, 'left', 'top');
   }
 
   if (state.settingsEditing) {
-    drawRightBtn(0, '+',   C.ACCENT, true, 26);
-    drawRightBtn(1, '-',   C.CARD,   true, 26);
+    drawRightBtn(0, '+',   C.ACCENT, true, 44);
+    drawRightBtn(1, '-',   C.CARD,   true, 44);
     drawRightBtn(2, 'OK',  C.GREEN);
     drawRightBtn(3, '',    C.SURF, false);
   } else {
@@ -1024,13 +1049,13 @@ const USER_ROW_H = 46;
 
 function renderUsers() {
   let y = HDR_H + 12;
-  text(CONT_X + 8,          y + 12, 'User Management', C.TXT,    17, 'left',  'top', true);
-  text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]',    C.YELLOW, 12, 'right', 'top');
+  text(CONT_X + 8,          y + 12, 'User Management', C.TXT,    29, 'left',  'top', true);
+  text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]',    C.YELLOW, 20, 'right', 'top');
   y += 52;
 
   rect(CONT_X + 8, y, CONT_W - 16, 30, C.SURF);
   [['USER', 16], ['ROLE', 180], ['LAST LOGIN', 290], ['STATUS', 460]].forEach(([h, x]) => {
-    text(CONT_X + x, y + 6, h, C.TXT2, 11, 'left', 'top');
+    text(CONT_X + x, y + 6, h, C.TXT2, 19, 'left', 'top');
   });
   y += 34;
 
@@ -1047,11 +1072,11 @@ function renderUsers() {
     }
     const stLabel = u.active ? 'Active' : 'Inactive';
     const stColor = u.active ? C.GREEN : C.TXT3;
-    text(CONT_X + 16,  ry + 12, u.name, sel ? C.TXT : C.TXT, 12, 'left', 'top');
-    text(CONT_X + 180, ry + 12, u.role, isAdmin ? C.YELLOW : C.TXT2, 12, 'left', 'top');
-    text(CONT_X + 290, ry + 12, u.last, C.TXT2, 12, 'left', 'top');
-    text(CONT_X + 460, ry + 12, stLabel, stColor, 12, 'left', 'top');
-    if (isAdmin && sel) text(CONT_X + 540, ry + 12, '(fixed)', C.TXT3, 10, 'left', 'top');
+    text(CONT_X + 16,  ry + 12, u.name, sel ? C.TXT : C.TXT, 20, 'left', 'top');
+    text(CONT_X + 180, ry + 12, u.role, isAdmin ? C.YELLOW : C.TXT2, 20, 'left', 'top');
+    text(CONT_X + 290, ry + 12, u.last, C.TXT2, 20, 'left', 'top');
+    text(CONT_X + 460, ry + 12, stLabel, stColor, 20, 'left', 'top');
+    if (isAdmin && sel) text(CONT_X + 540, ry + 12, '(fixed)', C.TXT3, 17, 'left', 'top');
   });
 
   /* 右ボタン：選択行に応じて切り替え */
@@ -1067,18 +1092,18 @@ function renderUsers() {
 ═══════════════════════════════════════════════ */
 function renderToolLife() {
   let y = HDR_H + 12;
-  text(CONT_X + 8, y + 12, 'Tool Life Management', C.TXT, 17, 'left', 'top', true);
+  text(CONT_X + 8, y + 12, 'Tool Life Management', C.TXT, 29, 'left', 'top', true);
   const isAdmin = state.role === ROLE.ADMIN;
-  if (isAdmin) text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]', C.YELLOW, 12, 'right', 'top');
+  if (isAdmin) text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]', C.YELLOW, 20, 'right', 'top');
   y += 52;
 
   /* テーブルヘッダ */
   rect(CONT_X + 8, y, CONT_W - 16, 28, C.SURF);
-  text(CONT_X + 16,  y + 6, '#',         C.TXT2, 10, 'left', 'top');
-  text(CONT_X + 44,  y + 6, 'Name',      C.TXT2, 10, 'left', 'top');
-  text(CONT_X + 270, y + 6, 'Usage',     C.TXT2, 10, 'left', 'top');
-  text(CONT_X + 370, y + 6, 'Life Bar',  C.TXT2, 10, 'left', 'top');
-  text(CONT_X + CONT_W - 16, y + 6, 'Rem', C.TXT2, 10, 'right', 'top');
+  text(CONT_X + 16,  y + 6, '#',         C.TXT2, 17, 'left', 'top');
+  text(CONT_X + 44,  y + 6, 'Name',      C.TXT2, 17, 'left', 'top');
+  text(CONT_X + 270, y + 6, 'Usage',     C.TXT2, 17, 'left', 'top');
+  text(CONT_X + 370, y + 6, 'Life Bar',  C.TXT2, 17, 'left', 'top');
+  text(CONT_X + CONT_W - 16, y + 6, 'Rem', C.TXT2, 17, 'right', 'top');
   y += 32;
 
   const vis = Math.floor((H - 8 - y) / TOOL_ROW_H);
@@ -1099,16 +1124,16 @@ function renderToolLife() {
     rect(CONT_X + 8, ry, 4, TOOL_ROW_H - 2, sel ? C.ACCENT : C.BORDER);
 
     const mid = ry + (TOOL_ROW_H - 2) / 2;
-    text(CONT_X + 16,  mid, t.number, C.TXT2, 10, 'left',  'middle');
-    text(CONT_X + 44,  mid, t.name,   C.TXT,  10, 'left',  'middle');
-    text(CONT_X + 270, mid, t.usage + '/' + t.life, C.TXT2, 10, 'left', 'middle');
+    text(CONT_X + 16,  mid, t.number, C.TXT2, 17, 'left',  'middle');
+    text(CONT_X + 44,  mid, t.name,   C.TXT,  17, 'left',  'middle');
+    text(CONT_X + 270, mid, t.usage + '/' + t.life, C.TXT2, 17, 'left', 'middle');
     /* 寿命バー */
     const bx = CONT_X + 370, bw = 160, bh = 12, by = mid - 6;
     rect(bx, by, bw, bh, C.CARD2);
     rect(bx, by, Math.round(bw * usedPct / 100), bh, lifeCol);
     /* 残量% */
     const remStr = remPct + '%' + (remPct < 20 ? '!!' : '');
-    text(CONT_X + CONT_W - 16, mid, remStr, lifeCol, 10, 'right', 'middle');
+    text(CONT_X + CONT_W - 16, mid, remStr, lifeCol, 17, 'right', 'middle');
   });
 
   drawRightBtn(0, 'RST', isAdmin ? C.YELLOW : C.SURF, isAdmin);
@@ -1125,10 +1150,10 @@ function renderCoordinate() {
   /* プログラムカード */
   const pCardH = 44;
   card(ix, y, iw, pCardH);
-  text(ix + 10,      y + pCardH / 2, 'O' + String(state.ncProgramNo).padStart(4, '0'), C.TXT,  13, 'left',  'middle', true);
-  text(ix + 130,     y + pCardH / 2, 'N' + String(state.ncBlockNo).padStart(4, '0'),   C.TXT2, 13, 'left',  'middle');
-  text(ix + 260,     y + pCardH / 2, 'Mode: ' + state.machineMode,                     C.TXT2, 11, 'left',  'middle');
-  text(ix + iw - 10, y + pCardH / 2, 'Feed: ' + state.feedOverridePct + '%',           C.TXT2, 11, 'right', 'middle');
+  text(ix + 10,      y + pCardH / 2, 'O' + String(state.ncProgramNo).padStart(4, '0'), C.TXT,  22, 'left',  'middle', true);
+  text(ix + 130,     y + pCardH / 2, 'N' + String(state.ncBlockNo).padStart(4, '0'),   C.TXT2, 22, 'left',  'middle');
+  text(ix + 260,     y + pCardH / 2, 'Mode: ' + state.machineMode,                     C.TXT2, 19, 'left',  'middle');
+  text(ix + iw - 10, y + pCardH / 2, 'Feed: ' + state.feedOverridePct + '%',           C.TXT2, 19, 'right', 'middle');
   y += pCardH + 4;
 
   /* XYZ カード */
@@ -1143,7 +1168,7 @@ function renderCoordinate() {
   axes.forEach((ax, i) => {
     const ay = y + i * axisRowH;
     if (i > 0) hline(ix + 8, ay, iw - 16, C.BORDER);
-    text(ix + 14, ay + axisRowH / 2, ax.label, C.TXT2, 13, 'left', 'middle', true);
+    text(ix + 14, ay + axisRowH / 2, ax.label, C.TXT2, 22, 'left', 'middle', true);
     const neg  = ax.val < 0;
     const zero = ax.val === 0;
     const col  = neg ? C.ORANGE : zero ? C.TXT2 : C.TXT;
@@ -1152,14 +1177,14 @@ function renderCoordinate() {
     const fracP = absV % 1000;
     const sign  = neg ? '-' : ax.val > 0 ? '+' : ' ';
     const valStr = sign + String(intP).padStart(3, ' ') + '.' + String(fracP).padStart(3, '0');
-    text(ix + iw - 10, ay + axisRowH / 2, valStr, col, 28, 'right', 'middle', true, true);
+    text(ix + iw - 10, ay + axisRowH / 2, valStr, col, 37, 'right', 'middle', true, true);
   });
   y += xyzH + 4;
 
   /* NC ブロックカード */
   const nbH = 44;
   card(ix, y, iw, nbH);
-  text(ix + 10, y + nbH / 2, state.ncBlockText, C.TEAL, 11, 'left', 'middle');
+  text(ix + 10, y + nbH / 2, state.ncBlockText, C.TEAL, 19, 'left', 'middle');
   y += nbH + 4;
 
   /* ステータスバー */
@@ -1168,10 +1193,10 @@ function renderCoordinate() {
   const stCol = state.machine === MACHINE.RUNNING ? C.GREEN : C.RED;
   rect(ix, y, iw, sbH, C.SURF);
   strokeRect(ix, y, iw, sbH, C.BORDER);
-  text(ix + 10,  y + sbH / 2, stStr,                          stCol,  12, 'left', 'middle', true);
-  text(ix + 160, y + sbH / 2, state.actualRpm + ' rpm',       C.TXT2, 11, 'left', 'middle');
-  text(ix + 290, y + sbH / 2, 'Load: ' + state.spindleLoad + '%', C.TXT2, 11, 'left', 'middle');
-  text(ix + 420, y + sbH / 2, 'Tmp: ' + state.spindleTemp + '\u00b0C', C.TXT2, 11, 'left', 'middle');
+  text(ix + 10,  y + sbH / 2, stStr,                          stCol,  20, 'left', 'middle', true);
+  text(ix + 160, y + sbH / 2, state.actualRpm + ' rpm',       C.TXT2, 19, 'left', 'middle');
+  text(ix + 290, y + sbH / 2, 'Load: ' + state.spindleLoad + '%', C.TXT2, 19, 'left', 'middle');
+  text(ix + 420, y + sbH / 2, 'Tmp: ' + state.spindleTemp + '\u00b0C', C.TXT2, 19, 'left', 'middle');
 
   [0, 1, 2, 3].forEach(i => drawRightBtn(i, '', C.SURF, false));
 }
@@ -1181,17 +1206,17 @@ function renderCoordinate() {
 ═══════════════════════════════════════════════ */
 function renderMaintenance() {
   let y = HDR_H + 12;
-  text(CONT_X + 8, y + 12, 'Maintenance', C.TXT, 17, 'left', 'top', true);
+  text(CONT_X + 8, y + 12, 'Maintenance', C.TXT, 29, 'left', 'top', true);
   const isAdmin = state.role === ROLE.ADMIN;
-  if (isAdmin) text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]', C.YELLOW, 12, 'right', 'top');
+  if (isAdmin) text(CONT_X + CONT_W - 8, y + 18, '[ADMIN ONLY]', C.YELLOW, 20, 'right', 'top');
   y += 52;
 
   /* テーブルヘッダ */
   rect(CONT_X + 8, y, CONT_W - 16, 28, C.SURF);
-  text(CONT_X + 16,  y + 6, 'Item',      C.TXT2, 10, 'left', 'top');
-  text(CONT_X + 270, y + 6, 'Interval',  C.TXT2, 10, 'left', 'top');
-  text(CONT_X + 370, y + 6, 'Last Done', C.TXT2, 10, 'left', 'top');
-  text(CONT_X + CONT_W - 16, y + 6, 'Status', C.TXT2, 10, 'right', 'top');
+  text(CONT_X + 16,  y + 6, 'Item',      C.TXT2, 17, 'left', 'top');
+  text(CONT_X + 270, y + 6, 'Interval',  C.TXT2, 17, 'left', 'top');
+  text(CONT_X + 370, y + 6, 'Last Done', C.TXT2, 17, 'left', 'top');
+  text(CONT_X + CONT_W - 16, y + 6, 'Status', C.TXT2, 17, 'right', 'top');
   y += 32;
 
   const vis = Math.floor((H - 8 - y) / MAINT_ROW_H);
@@ -1215,10 +1240,10 @@ function renderMaintenance() {
     rect(CONT_X + 8, ry, 4, MAINT_ROW_H - 2, stColor);
 
     const mid = ry + (MAINT_ROW_H - 2) / 2;
-    text(CONT_X + 16,  mid, m.name,             C.TXT,  10, 'left',  'middle');
-    text(CONT_X + 270, mid, m.interval + 'd',   C.TXT2, 10, 'left',  'middle');
-    text(CONT_X + 370, mid, m.lastDone,         C.TXT2, 10, 'left',  'middle');
-    text(CONT_X + CONT_W - 16, mid, stLabel,    stColor, 10, 'right', 'middle', true);
+    text(CONT_X + 16,  mid, m.name,             C.TXT,  17, 'left',  'middle');
+    text(CONT_X + 270, mid, m.interval + 'd',   C.TXT2, 17, 'left',  'middle');
+    text(CONT_X + 370, mid, m.lastDone,         C.TXT2, 17, 'left',  'middle');
+    text(CONT_X + CONT_W - 16, mid, stLabel,    stColor, 17, 'right', 'middle', true);
   });
 
   drawRightBtn(0, 'DONE', isAdmin ? C.GREEN : C.SURF, isAdmin);
@@ -1230,7 +1255,7 @@ function renderMaintenance() {
 ═══════════════════════════════════════════════ */
 function renderProduction() {
   let y = HDR_H + 12;
-  text(CONT_X + 8, y + 12, 'Production Summary', C.TXT, 17, 'left', 'top', true);
+  text(CONT_X + 8, y + 12, 'Production Summary', C.TXT, 29, 'left', 'top', true);
   y += 52;
 
   /* 期間タブ */
@@ -1239,17 +1264,17 @@ function renderProduction() {
     const tx  = CONT_X + 8 + i * 92;
     rect(tx, y, 86, 30, sel ? C.ACCENT : C.CARD2);
     strokeRect(tx, y, 86, 30, sel ? C.ACCENT : C.BORDER);
-    text(tx + 43, y + 15, lbl, sel ? C.WHITE : C.TXT2, 11, 'center', 'middle');
+    text(tx + 43, y + 15, lbl, sel ? C.WHITE : C.TXT2, 19, 'center', 'middle');
   });
   y += 38;
 
   /* メトリクスバー */
   rect(CONT_X + 8, y, CONT_W - 16, 36, C.SURF);
   strokeRect(CONT_X + 8, y, CONT_W - 16, 36, C.BORDER);
-  text(CONT_X + 20,  y + 18, 'Total: ' + state.prodTotalParts,    C.TXT,   11, 'left',  'middle', true);
-  text(CONT_X + 170, y + 18, 'OpRate: ' + state.prodOpRatePct + '%', C.GREEN, 11, 'left', 'middle');
+  text(CONT_X + 20,  y + 18, 'Total: ' + state.prodTotalParts,    C.TXT,   19, 'left',  'middle', true);
+  text(CONT_X + 170, y + 18, 'OpRate: ' + state.prodOpRatePct + '%', C.GREEN, 19, 'left', 'middle');
   const dateStr = state.rtcYear + '/' + p2(state.rtcMon) + '/' + p2(state.rtcDay);
-  text(CONT_X + CONT_W - 16, y + 18, dateStr, C.TXT2, 11, 'right', 'middle');
+  text(CONT_X + CONT_W - 16, y + 18, dateStr, C.TXT2, 19, 'right', 'middle');
   y += 44;
 
   /* W1/W2/W3 進捗バー（行高36pxに縮小） */
@@ -1259,11 +1284,11 @@ function renderProduction() {
   state.workPrograms.forEach((wp, i) => {
     const wy  = y + 6 + i * 36;
     const pct = wp.target > 0 ? Math.round(wp.completed * 100 / wp.target) : 0;
-    text(CONT_X + 16, wy + 9, wp.name, C.TXT2, 10, 'left', 'middle');
+    text(CONT_X + 16, wy + 9, wp.name, C.TXT2, 17, 'left', 'middle');
     const bx = CONT_X + 110, bw = CONT_W - 180, bh = 14;
     rect(bx, wy + 4, bw, bh, C.CARD2);
     rect(bx, wy + 4, Math.round(bw * pct / 100), bh, pCols[i]);
-    text(CONT_X + CONT_W - 16, wy + 9, wp.completed + '/' + wp.target, C.TXT, 10, 'right', 'middle');
+    text(CONT_X + CONT_W - 16, wy + 9, wp.completed + '/' + wp.target, C.TXT, 17, 'right', 'middle');
   });
   y += progH + 4;
 
@@ -1281,7 +1306,7 @@ function renderProduction() {
   const trendH = H - y - 8;
   if (trendH > 60) {
     card(CONT_X + 8, y, CONT_W - 16, trendH);
-    text(CONT_X + 16, y + 6, trendLabel, C.TXT2, 10, 'left', 'top');
+    text(CONT_X + 16, y + 6, trendLabel, C.TXT2, 17, 'left', 'top');
     const chartY = y + 34, chartH = trendH - 44;
     const maxVal = Math.max(...trendData, 1);
     const barW   = Math.floor((CONT_W - 40) / 7) - 4;
@@ -1290,7 +1315,7 @@ function renderProduction() {
       const bh2 = Math.round(chartH * v / maxVal);
       const col = i === 0 ? C.ACCENT : C.TXT3;
       rect(bx, chartY + chartH - bh2, barW, bh2, col);
-      if (v > 0) text(bx + barW / 2, chartY + chartH - bh2 - 4, v + '', col, 9, 'center', 'bottom');
+      if (v > 0) text(bx + barW / 2, chartY + chartH - bh2 - 4, v + '', col, 15, 'center', 'bottom');
     });
   }
 
@@ -1331,7 +1356,7 @@ function renderMenu() {
   const showCount = Math.min(MENU_VIS, visible.length);
   const totalH    = 38 + showCount * MENU_ITEM_H + 16;
   card(mx, my, mw, totalH);
-  text(mx + 14, my + 12, 'NAVIGATION', C.TXT2, 11, 'left', 'top');
+  text(mx + 14, my + 12, 'NAVIGATION', C.TXT2, 19, 'left', 'top');
 
   /* スクロール範囲クランプ */
   const maxScroll = Math.max(0, visible.length - MENU_VIS);
@@ -1346,16 +1371,16 @@ function renderMenu() {
     rect(mx + 4, iy, mw - 8, MENU_ITEM_H - 4,
          (sel && enabled) ? C.ACCENT : cur ? C.CARD2 : C.SURF);
     text(mx + 18, iy + (MENU_ITEM_H - 4) / 2, item.label,
-         !enabled ? C.TXT3 : sel ? C.WHITE : cur ? C.ACCENT : C.TXT2, 14, 'left', 'middle');
+         !enabled ? C.TXT3 : sel ? C.WHITE : cur ? C.ACCENT : C.TXT2, 24, 'left', 'middle');
     if (item.admin) text(mx + mw - 14, iy + (MENU_ITEM_H - 4) / 2, 'ADM',
-                         enabled ? C.YELLOW : C.TXT3, 11, 'right', 'middle');
+                         enabled ? C.YELLOW : C.TXT3, 19, 'right', 'middle');
   });
 
   /* スクロールインジケータ */
   if (visible.length > MENU_VIS) {
     const end = Math.min(state.menuScroll + MENU_VIS, visible.length);
     text(mx + mw - 8, my + totalH - 12,
-         (state.menuScroll + 1) + '-' + end + '/' + visible.length, C.TXT2, 9, 'right', 'bottom');
+         (state.menuScroll + 1) + '-' + end + '/' + visible.length, C.TXT2, 15, 'right', 'bottom');
   }
 }
 
@@ -1368,7 +1393,7 @@ function renderToast() {
   const tx = CONT_X + (CONT_W - tw) / 2, ty = H - 54;
   rect(tx, ty, tw, th, C.CARD2);
   strokeRect(tx, ty, tw, th, C.BORDER);
-  text(tx + tw / 2, ty + th / 2, state.toastMsg, C.TXT, 13, 'center');
+  text(tx + tw / 2, ty + th / 2, state.toastMsg, C.TXT, 22, 'center');
 }
 
 /* ═══════════════════════════════════════════════
@@ -1837,6 +1862,33 @@ function loop(now) {
   render(now);
   requestAnimationFrame(loop);
 }
+
+/* ═══════════════════════════════════════════════
+   URLパラメータによる画面直接表示（Figmaキャプチャ用）
+   例: ?panel=operation&role=admin
+═══════════════════════════════════════════════ */
+(function initFromURL() {
+  const p = new URLSearchParams(location.search);
+  const panelName = (p.get('panel') || '').toLowerCase();
+  const roleStr   = (p.get('role')  || 'admin').toLowerCase();
+
+  if (!panelName) return;   /* パラメータなし → 通常ロック画面 */
+
+  /* ロール設定 */
+  state.role        = roleStr === 'operator' ? ROLE.OPERATOR : ROLE.ADMIN;
+  state.userName    = state.role === ROLE.ADMIN ? 'Y.Yamada' : 'I.Tanaka';
+  state.userRoleStr = state.role === ROLE.ADMIN ? 'Admin' : 'Operator';
+  state.screen      = SCREEN.MAIN;
+
+  /* パネル選択 */
+  const map = {
+    home: PANEL.HOME, operation: PANEL.OPERATION, alarm: PANEL.ALARM,
+    log: PANEL.LOG, settings: PANEL.SETTINGS, users: PANEL.USERS,
+    toollife: PANEL.TOOL_LIFE, coordinate: PANEL.COORDINATE,
+    maintenance: PANEL.MAINTENANCE, production: PANEL.PRODUCTION,
+  };
+  if (map[panelName] !== undefined) state.panel = map[panelName];
+})();
 
 requestAnimationFrame(loop);
 </script>

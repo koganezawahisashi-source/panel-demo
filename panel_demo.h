@@ -74,6 +74,8 @@
 #define COL_ACCENT  0x4F8EF7UL
 #define COL_TEAL    0x22D3EEUL
 #define COL_GREEN   0x34D399UL
+#define COL_GREEN_LT 0x6EE7B7UL  /* 編集モード ライトグリーン */
+#define COL_GREEN_BG 0x153D28UL  /* 編集モード ダークグリーン背景 */
 #define COL_YELLOW  0xFBBF24UL
 #define COL_ORANGE  0xF97316UL
 #define COL_RED     0xF87171UL
@@ -90,23 +92,14 @@
     EVE_CoDl_colorRgb((phost), COL_R(c), COL_G(c), COL_B(c))
 
 /* ─────────────────────────────────────────────
-   フォント番号
-   FONT_SM : カスタムフォント（Inter / Flash格納）
-   FONT_MD〜XL : EVE ROMフォント（追加変換後に順次置換予定）
+   フォント番号（BT817 内蔵 ROM フォントのみ使用）
+   26 ≈ 15px / 28 ≈ 19px / 30 ≈ 29px / 31 ≈ 37px
+   ※ カスタムフォント（Inter）は使用しない
 ───────────────────────────────────────────── */
-#define FONT_SM     26  /* Inter 30pt L4（カスタム・Flash）        */
-#define FONT_MD     28  /* ROMフォント 一般データ（≈19px）         */
-#define FONT_LG     30  /* ROMフォント 重要情報（≈24px）           */
-#define FONT_XL     31  /* ROMフォント 主要数値（≈28px）           */
-
-/* ─────────────────────────────────────────────
-   カスタムフォント Flash/RAM_G パラメータ
-   ※ EVE Asset Builder 4.2.0 で変換・Flash書き込み済み
-   ※ flash-817-default.map の値を参照して設定
-───────────────────────────────────────────── */
-#define FONT_FLASH_OFFSET   4096UL  /* Flash上の圧縮データ開始位置（64byte境界）     */
-/* FONT_DATA_SIZE 不要: inflate_flash は zlib ストリーム終端を自動検出する           */
-#define FONT_RAM_G_BASE     0UL     /* RAM_G上の展開先アドレス                       */
+#define FONT_SM     26  /* ROMフォント 小テキスト  ≈15px */
+#define FONT_MD     28  /* ROMフォント 中テキスト  ≈19px */
+#define FONT_LG     30  /* ROMフォント 大テキスト  ≈29px */
+#define FONT_XL     31  /* ROMフォント 最大テキスト≈37px */
 
 /* ─────────────────────────────────────────────
    画面・パネル・権限・状態 enum

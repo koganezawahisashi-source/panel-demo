@@ -55,6 +55,7 @@ set(EVE_HAL_SOURCES
 add_executable(panel_demo
     main.c
     panel_demo.c
+    panel_fonts.c
     ${EVE_HAL_SOURCES}
 )
 
